@@ -81,5 +81,11 @@ if [ -f /root/.acme.sh/acme.sh ]; then
     crond
 fi
 
+# Parham hidden-panel mode: when PARHAM_HIDE_PANEL=1, the domain root serves
+# the bat game (404) and the panel is only reachable under /parham.
+if [ "$PARHAM_HIDE_PANEL" = "1" ]; then
+    cp /app/nginx-hidden.conf /etc/nginx/http.d/default.conf
+fi
+
 # Run panel and Nginx under Supervisor for the OMID reverse-proxy image.
 exec /usr/bin/supervisord -n -c /etc/supervisord.conf

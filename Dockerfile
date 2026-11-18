@@ -53,6 +53,8 @@ COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
 COPY --from=builder /app/internal/web/translation /app/internal/web/translation
 COPY nginx/default.conf /etc/nginx/http.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY nginx/hidden.conf /app/nginx-hidden.conf
+COPY nginx/game.html /app/hidden/game.html
 COPY supervisord.conf /etc/supervisord.conf
 
 
