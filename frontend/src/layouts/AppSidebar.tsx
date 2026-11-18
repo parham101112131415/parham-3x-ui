@@ -37,11 +37,11 @@ import { useCommandPalette } from '@/components/command-palette/useCommandPalett
 import { PANEL_ROUTES } from '@/routes/panelRoutes';
 import './AppSidebar.css';
 
-const DONATE_URL = 'https://donate.sanaei.dev/';
+const DONATE_URL = 'https://t.me/par1234mehr';
 // The palette listens for Ctrl as well as Cmd, so the chip must not show a
 // Mac glyph to the Linux and Windows operators who are most of this panel's.
 const SHORTCUT_MODIFIER = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
-const DOCS_URL = 'https://docs.sanaei.dev/';
+const DOCS_URL = 'https://github.com/parham101112131415/parham-3x-ui';
 const REPO_URL = 'https://github.com/parham101112131415/parham-3x-ui';
 const LOGOUT_KEY = '__logout__';
 const RAIL_WIDTH = 72;

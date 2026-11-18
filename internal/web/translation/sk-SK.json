@@ -1448,7 +1448,7 @@
       "subAnnounce": "Oznámenie",
       "subAnnounceDesc": "Text oznámenia vo VPN klientovi. Podporuje premenné identity klienta: {{EMAIL}}, {{ID}}, {{SHORT_ID}}, {{SUB_ID}}, {{TELEGRAM_ID}}.",
       "subThemeDir": "Priečinok vzhľadu odberu",
-      "subThemeDirDesc": "Absolútna cesta k priečinku s vlastnou šablónou klientskej stránky index.html/sub.html (napr. /etc/3x-ui/sub_templates/my-theme/). Prázdne pole použije predvolenú stránku.",
+      "subThemeDirDesc": "Absolútna cesta k priečinku s vlastnou šablónou klientskej stránky index.html/sub.html (napr. /etc/x-ui/sub_templates/my-theme/). Prázdne pole použije predvolenú stránku.",
       "subThemeDirDocs": "Návod na šablóny ↗",
       "subEnableRouting": "Zapnúť smerovanie",
       "happLinkEnable": "Šifrované odkazy na odber",
@@ -2752,10 +2752,10 @@
   },
   "discord": {
     "test": {
-      "title": "Skúška upozornení Discordu v 3x-ui",
+      "title": "Skúška upozornení Discordu v Parham Panel",
       "body": "Toto je skúšobné upozornenie na overenie správneho nastavenia upozornení Discordu."
     },
-    "footer": "Panel 3x-ui",
+    "footer": "Panel Parham Panel",
     "fields": {
       "panelVersion": "Verzia panelu",
       "xrayCore": "Jadro Xray",
@@ -2790,13 +2790,13 @@
       "loginFailed": "Neúspešné prihlásenie"
     },
     "report": {
-      "title": "📊 Správa o stave 3x-ui",
+      "title": "📊 Správa o stave Parham Panel",
       "summary": "Pravidelná správa o stave servera a proxy **{{ .Host }}**",
-      "footer": "Plánovaná správa 3x-ui • Plán: {{ .RunTime }}"
+      "footer": "Plánovaná správa Parham Panel • Plán: {{ .RunTime }}"
     },
     "commands": {
-      "helpTitle": "🤖 Príkazy Discord bota 3x-ui",
-      "helpDescription": "Dostupné príkazy na sledovanie a správu servera 3x-ui:",
+      "helpTitle": "🤖 Príkazy Discord bota Parham Panel",
+      "helpDescription": "Dostupné príkazy na sledovanie a správu servera Parham Panel:",
       "helpStatus": "Zobraziť záťaž systému, RAM, CPU, spojenia a pripojených používateľov",
       "helpReport": "Vytvoriť úplnú správu o stave, prípadne aj so zálohou databázy",
       "helpBackup": "Okamžite poslať súbor so zálohou databázy",
@@ -2804,10 +2804,10 @@
       "helpInbounds": "Zobraziť všetky nastavené vstupy s portmi a štatistikami klientov",
       "helpRestart": "Reštartovať jadro Xray",
       "helpHelp": "Zobraziť tento zoznam dostupných príkazov",
-      "statusTitle": "⚡ Stav servera 3x-ui",
+      "statusTitle": "⚡ Stav servera Parham Panel",
       "statusDescription": "Aktuálne prevádzkové údaje pre **{{ .Host }}**",
       "backupTitle": "🗄️ Záloha databázy",
-      "backupDescription": "Záloha 3x-ui vytvorená o `{{ .Time }}`",
+      "backupDescription": "Záloha Parham Panel vytvorená o `{{ .Time }}`",
       "backupUnavailable": "❌ Služba zálohovania nie je dostupná",
       "backupFailed": "❌ Nepodarilo sa načítať zálohu databázy: {{ .Error }}",
       "usageHint": "⚠️ Použitie: `!usage <email>` alebo `/usage <email>`",

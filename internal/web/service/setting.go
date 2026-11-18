@@ -38,7 +38,7 @@ const (
 	DefaultSubClashUserAgentRegex     = `(?i)(clash|mihomo)`
 	DefaultExternalSubUserAgent       = "v2rayNG/1.8.5"
 	DefaultSubJsonUserAgentRegex      = ``
-	DefaultRemarkTemplate             = "{{INBOUND}}-{{EMAIL}}|📊{{TRAFFIC_LEFT}}|⏳{{DAYS_LEFT}}D"
+	DefaultRemarkTemplate             = "{{HOST}}"
 	DefaultSubExpiredTemplate         = "⛔ {{EMAIL}} | Expired: {{EXPIRE_DATE}}"
 	DefaultSubTrafficDepletedTemplate = "🚫 {{EMAIL}} | Traffic Depleted | {{TRAFFIC_USED}}/{{TRAFFIC_TOTAL}}"
 	DefaultTrustedProxyCIDRs          = "127.0.0.1/32,::1/128"
@@ -106,9 +106,9 @@ var defaultValueMap = map[string]string{
 	"subJsonAutoDetect":           "false",
 	"subJsonAlwaysArray":          "false",
 	"subJsonUserAgentRegex":       "",
-	"subClashAutoDetect":          "false",
+	"subClashAutoDetect":          "true",
 	"subClashUserAgentRegex":      "",
-	"subTitle":                    "",
+	"subTitle":                    "{{SUB_ID}}",
 	"subSupportUrl":               "https://t.me/par1234mehr",
 	"subProfileMode":              SubProfileModeNone,
 	"subProfileUrl":               "",
@@ -182,7 +182,7 @@ var defaultValueMap = map[string]string{
 	"subURI":                      "",
 	"subJsonPath":                 "/json/",
 	"subJsonURI":                  "",
-	"subClashEnable":              "false",
+	"subClashEnable":              "true",
 	"subClashPath":                "/clash/",
 	"subClashURI":                 "",
 	"subClashEnableRouting":       "false",
