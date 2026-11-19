@@ -79,6 +79,12 @@ interface ApiMsg<T = unknown> {
   obj?: T;
 }
 
+interface ClientLocationUsage {
+  node: string;
+  up: number;
+  down: number;
+}
+
 const DEFAULT_SUB: SubSettings = {
   enable: false,
   subURI: '',
@@ -119,6 +125,8 @@ export default function ClientInfoModal({
   const [messageApi, messageContextHolder] = message.useMessage();
   const [links, setLinks] = useState<string[]>([]);
   const [clientIps, setClientIps] = useState<ClientIpInfo[]>([]);
+  const [ipHistory, setIpHistory] = useState<ClientIpInfo[]>([]);
+  const [usageRows, setUsageRows] = useState<ClientLocationUsage[]>([]);
   const [ipsLoading, setIpsLoading] = useState(false);
   const [ipsClearing, setIpsClearing] = useState(false);
   const [ipsModalOpen, setIpsModalOpen] = useState(false);
@@ -145,6 +153,8 @@ export default function ClientInfoModal({
     if (openSubId === null) {
       setLinks([]);
       setClientIps([]);
+      setIpHistory([]);
+      setUsageRows([]);
       setIpsModalOpen(false);
       resetHwids();
       setHwidsModalOpen(false);
@@ -166,9 +176,37 @@ export default function ClientInfoModal({
     };
   }, [open, client?.subId]);
 
+  useEffect(() => {
+    if (!open || !client?.email) return;
+    let cancelled = false;
+    (async () => {
+      const email = encodeURIComponent(client.email!);
+      const usageMsg = (await HttpUtil.post(
+        `/panel/api/clients/usageByLocation/${email}`,
+      )) as ApiMsg<ClientLocationUsage[]>;
+      const histMsg = (await HttpUtil.post(
+        `/panel/api/clients/ipHistory/${email}`,
+      )) as ApiMsg<unknown[]>;
+      const ipsMsg = (await HttpUtil.post(
+        `/panel/api/clients/ips/${email}`,
+      )) as ApiMsg<unknown[]>;
+      if (cancelled) return;
+      setUsageRows(usageMsg?.success && Array.isArray(usageMsg.obj) ? usageMsg.obj : []);
+      setIpHistory(histMsg?.success ? normalizeClientIps(histMsg.obj) : []);
+      setClientIps(ipsMsg?.success ? normalizeClientIps(ipsMsg.obj) : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, client?.email]);
+
   const traffic = client?.traffic || null;
   const totalBytes = client?.totalGB || 0;
   const used = (traffic?.up || 0) + (traffic?.down || 0);
+  const newestLiveIp = clientIps.length > 0 ? clientIps[clientIps.length - 1] : null;
+  const currentIpEntry = isOnline ? newestLiveIp : null;
+  const lastIpEntry = ipHistory.length > 0 ? ipHistory[0] : newestLiveIp;
+  const ipRowEntry = currentIpEntry ?? lastIpEntry;
   const remaining = useMemo(() => {
     if (totalBytes <= 0) return -1;
     const r = totalBytes - used;
@@ -268,6 +306,18 @@ export default function ClientInfoModal({
     }
   }
 
+  async function loadIpHistory() {
+    if (!client?.email) return;
+    const msg = (await HttpUtil.post(
+      `/panel/api/clients/ipHistory/${encodeURIComponent(client.email)}`,
+    )) as ApiMsg<unknown[]>;
+    if (!msg?.success) {
+      setIpHistory([]);
+      return;
+    }
+    setIpHistory(normalizeClientIps(msg.obj));
+  }
+
   async function clearIps() {
     if (!client?.email) return;
     setIpsClearing(true);
@@ -275,7 +325,10 @@ export default function ClientInfoModal({
       const msg = (await HttpUtil.post(
         `/panel/api/clients/clearIps/${encodeURIComponent(client.email)}`,
       )) as ApiMsg;
-      if (msg?.success) setClientIps([]);
+      if (msg?.success) {
+        setClientIps([]);
+        setIpHistory([]);
+      }
     } finally {
       setIpsClearing(false);
     }
@@ -284,6 +337,7 @@ export default function ClientInfoModal({
   function openIpsModal() {
     setIpsModalOpen(true);
     if (clientIps.length === 0) void loadIps();
+    if (ipHistory.length === 0) void loadIpHistory();
   }
 
   function openHwidsModal() {
@@ -419,6 +473,21 @@ export default function ClientInfoModal({
                       {SizeFormatter.sizeFormat(used)} /{' '}
                       {totalBytes > 0 ? SizeFormatter.sizeFormat(totalBytes) : '∞'}
                     </span>
+                    {usageRows.length > 0 && (
+                      <div className="usage-by-location">
+                        {usageRows.map((row, idx) => (
+                          <div key={idx} className="usage-loc-row">
+                            <span className="usage-loc-name">
+                              {row.node || t('pages.clients.localPanel')}
+                            </span>
+                            <span>
+                              ↑ {SizeFormatter.sizeFormat(row.up)} / ↓{' '}
+                              {SizeFormatter.sizeFormat(row.down)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </td>
                 </tr>
                 <tr>
@@ -464,6 +533,22 @@ export default function ClientInfoModal({
                     >
                       {clientIps.length > 0 ? clientIps.length : ''}
                     </Button>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    {currentIpEntry ? t('pages.clients.currentIp') : t('pages.clients.lastIp')}
+                  </td>
+                  <td>
+                    {ipRowEntry ? (
+                      <Tag color="blue" className="ip-tag">
+                        {ipRowEntry.ip}
+                        {ipRowEntry.time ? ` (${ipRowEntry.time})` : ''}
+                        {ipRowEntry.node ? ` @ ${ipRowEntry.node}` : ''}
+                      </Tag>
+                    ) : (
+                      <span className="hint">—</span>
+                    )}
                   </td>
                 </tr>
                 {(traffic?.resetMax ?? 0) > 0 && (
@@ -857,7 +942,10 @@ export default function ClientInfoModal({
             key="refresh"
             icon={<ReloadOutlined aria-hidden />}
             loading={ipsLoading}
-            onClick={loadIps}
+            onClick={() => {
+              void loadIps();
+              void loadIpHistory();
+            }}
           >
             {t('refresh')}
           </Button>,
@@ -865,7 +953,7 @@ export default function ClientInfoModal({
             key="clear"
             danger
             loading={ipsClearing}
-            disabled={clientIps.length === 0}
+            disabled={clientIps.length === 0 && ipHistory.length === 0}
             onClick={clearIps}
           >
             {t('pages.clients.clearAll')}
@@ -900,8 +988,40 @@ export default function ClientInfoModal({
               </Tag>
             ))}
           </div>
-        ) : (
+        ) : ipHistory.length === 0 ? (
           <Tag>{t('tgbot.noIpRecord')}</Tag>
+        ) : null}
+        {ipHistory.length > 0 && (
+          <>
+            <Divider titlePlacement="start" style={{ margin: '10px 0 8px' }}>
+              {t('pages.clients.recentIps')}
+            </Divider>
+            <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+              {ipHistory.map((entry, idx) => (
+                <Tag
+                  key={idx}
+                  color="purple"
+                  style={{
+                    display: 'block',
+                    width: 'fit-content',
+                    maxWidth: '100%',
+                    marginBottom: 6,
+                    padding: '2px 8px',
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                  }}
+                >
+                  {entry.ip}
+                  {entry.time ? ` (${entry.time})` : ''}
+                  {entry.node ? (
+                    <span style={{ marginInlineStart: 6, opacity: 0.85, fontWeight: 600 }}>
+                      @ {entry.node}
+                    </span>
+                  ) : null}
+                </Tag>
+              ))}
+            </div>
+          </>
         )}
       </Modal>
 

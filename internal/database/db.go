@@ -82,6 +82,7 @@ func allModels() []any {
 		&model.HostTombstone{},
 		&model.NodeClientTraffic{},
 		&model.NodeClientIp{},
+		&model.ClientIpHistory{},
 		&model.ClientGlobalTraffic{},
 		&model.NodePendingReset{},
 		&model.OutboundSubscription{},

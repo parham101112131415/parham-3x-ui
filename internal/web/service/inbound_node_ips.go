@@ -108,7 +108,14 @@ func upsertNodeClientIps(guid string, perEmail map[string][]model.ClientIpEntry)
 			return err
 		}
 	}
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+	// Persistent "last IPs" history: the live tables above expire entries
+	// after 30 minutes, so fold the same observations into the history
+	// before they are forgotten. Best-effort; never fails this upsert.
+	recordClientIpHistory(guid, perEmail)
+	return nil
 }
 
 // RecordLocalClientIps stores the scanner's local observations under this panel's GUID.

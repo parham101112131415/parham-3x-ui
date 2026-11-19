@@ -202,12 +202,21 @@ func (s *InboundService) UpdateClientIPs(tx *gorm.DB, oldEmail string, newEmail 
 		if err := tx.Where("client_email = ?", newEmail).Delete(model.InboundClientIps{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("email = ?", newEmail).Delete(&model.ClientIpHistory{}).Error; err != nil {
+			return err
+		}
 	}
-	return tx.Model(model.InboundClientIps{}).Where("client_email = ?", oldEmail).Update("client_email", newEmail).Error
+	if err := tx.Model(model.InboundClientIps{}).Where("client_email = ?", oldEmail).Update("client_email", newEmail).Error; err != nil {
+		return err
+	}
+	return tx.Model(&model.ClientIpHistory{}).Where("email = ?", oldEmail).Update("email", newEmail).Error
 }
 
 func (s *InboundService) DelClientIPs(tx *gorm.DB, email string) error {
-	return tx.Where("client_email = ?", email).Delete(model.InboundClientIps{}).Error
+	if err := tx.Where("client_email = ?", email).Delete(model.InboundClientIps{}).Error; err != nil {
+		return err
+	}
+	return tx.Where("email = ?", email).Delete(&model.ClientIpHistory{}).Error
 }
 
 func (s *InboundService) delClientIPsByEmails(tx *gorm.DB, emails []string) error {
@@ -215,6 +224,9 @@ func (s *InboundService) delClientIPsByEmails(tx *gorm.DB, emails []string) erro
 	for start := 0; start < len(emails); start += chunk {
 		end := min(start+chunk, len(emails))
 		if err := tx.Where("client_email IN ?", emails[start:end]).Delete(model.InboundClientIps{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("email IN ?", emails[start:end]).Delete(&model.ClientIpHistory{}).Error; err != nil {
 			return err
 		}
 	}
@@ -265,11 +277,11 @@ func (s *InboundService) ClearClientIps(clientEmail string) error {
 	result := db.Model(model.InboundClientIps{}).
 		Where("client_email = ?", clientEmail).
 		Update("ips", "")
-	err := result.Error
-	if err != nil {
-		return err
+	if result.Error != nil {
+		return result.Error
 	}
-	return nil
+	// The persistent history is part of the same IP log the operator clears.
+	return db.Where("email = ?", clientEmail).Delete(&model.ClientIpHistory{}).Error
 }
 
 // PruneStaleClientIps enforces clientIpStaleAfterSeconds for rows the online

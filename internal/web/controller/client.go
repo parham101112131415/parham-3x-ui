@@ -84,6 +84,8 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/resetTraffic/:email", a.resetTrafficByEmail)
 	g.POST("/updateTraffic/:email", a.updateTrafficByEmail)
 	g.POST("/ips/:email", a.getIps)
+	g.POST("/ipHistory/:email", a.getIpHistory)
+	g.POST("/usageByLocation/:email", a.getUsageByLocation)
 	g.POST("/clearIps/:email", a.clearIps)
 	g.POST("/hwids/:email", a.getHwids)
 	g.DELETE("/hwids/:email", a.clearHwids)
@@ -603,6 +605,16 @@ func (a *ClientController) getIps(c *gin.Context) {
 	email := c.Param("email")
 	infos, err := a.inboundService.GetClientIpsWithNodes(email)
 	jsonObj(c, infos, err)
+}
+
+func (a *ClientController) getIpHistory(c *gin.Context) {
+	infos, err := a.inboundService.GetClientIpHistory(c.Param("email"))
+	jsonObj(c, infos, err)
+}
+
+func (a *ClientController) getUsageByLocation(c *gin.Context) {
+	rows, err := a.inboundService.GetClientUsageByLocation(c.Param("email"))
+	jsonObj(c, rows, err)
 }
 
 func (a *ClientController) clientIpsByGuid(c *gin.Context) {

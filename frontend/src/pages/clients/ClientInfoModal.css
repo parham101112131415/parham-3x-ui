@@ -147,3 +147,26 @@
 .link-row-title-anchor:hover {
   text-decoration-color: var(--ant-color-primary);
 }
+
+.usage-by-location {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.usage-loc-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+.usage-loc-name {
+  font-weight: 600;
+}
+
+.ip-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
