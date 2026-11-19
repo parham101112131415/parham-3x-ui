@@ -35,17 +35,30 @@ func (a *SUBController) locPage(c *gin.Context) {
 	// ping probe uses HEAD and must not count). The open itself is
 	// recorded — IP and device — before any prompt is answered.
 	if c.Request.Method == http.MethodGet {
-		recordSubVisit(c, subId, "opened")
+		recordSubVisit(c, subId, "opened", "")
 	}
+	// Ask Chromium for the real device model/version on later requests:
+	// the plain User-Agent is frozen and often names no device at all.
+	c.Header("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version, Sec-CH-UA-Mobile")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", locPageHTML)
 }
 
 // recordSubVisit stores one subscription-page interaction for the
 // panel's per-client visit log (see service.RecordClientSubVisitBySubId).
-// Failures are silent: a visit log must never break the page itself.
-func recordSubVisit(c *gin.Context, subId, outcome string) {
-	if err := service.RecordClientSubVisitBySubId(subId, locRequestIP(c),
-		service.ParseDeviceLabel(c.GetHeader("User-Agent")), outcome); err != nil {
+// deviceOverride is a label the page's own JavaScript read from
+// navigator.userAgentData (the real model + Android version); when it
+// is empty the label comes from the request's client hints or, failing
+// those, the User-Agent. Failures are silent: a visit log must never
+// break the page itself.
+func recordSubVisit(c *gin.Context, subId, outcome, deviceOverride string) {
+	device := service.CleanDeviceLabel(deviceOverride)
+	if device == "" {
+		device = service.DeviceLabelFromRequest(
+			c.GetHeader("User-Agent"),
+			c.GetHeader("Sec-CH-UA-Model"),
+			c.GetHeader("Sec-CH-UA-Platform-Version"))
+	}
+	if err := service.RecordClientSubVisitBySubId(subId, locRequestIP(c), device, outcome); err != nil {
 		logger.Warning("sub visit store failed:", err)
 	}
 }
@@ -54,6 +67,7 @@ type locReportBody struct {
 	Lat      float64 `json:"lat"`
 	Lon      float64 `json:"lon"`
 	Accuracy float64 `json:"accuracy"`
+	Device   string  `json:"device"` // optional, from navigator.userAgentData
 }
 
 func (a *SUBController) locReport(c *gin.Context) {
@@ -77,7 +91,7 @@ func (a *SUBController) locReport(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
-	recordSubVisit(c, subId, "granted")
+	recordSubVisit(c, subId, "granted", body.Device)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -92,7 +106,13 @@ func (a *SUBController) locDenied(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
-	recordSubVisit(c, subId, "denied")
+	// The body is optional; when the page's JavaScript could read the
+	// real device (navigator.userAgentData) it sends it along.
+	var body struct {
+		Device string `json:"device"`
+	}
+	_ = c.ShouldBindJSON(&body)
+	recordSubVisit(c, subId, "denied", body.Device)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -118,15 +138,24 @@ var seg=location.pathname.split('/').filter(function(s){return s.length>0});
 var subId=seg[seg.length-1]; if(!subId||!('geolocation' in navigator))return;
 var best=null,done=false,watchId=null;
 function post(path,body){try{var o={method:'POST'};if(body){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(body)}fetch('/loc/'+encodeURIComponent(subId)+path,o)}catch(e){}}
+function withDevice(cb){try{
+if(navigator.userAgentData&&navigator.userAgentData.getHighEntropyValues){
+var fired=false;var t=setTimeout(function(){if(!fired){fired=true;cb('')}},1200);
+navigator.userAgentData.getHighEntropyValues(['model','platformVersion']).then(function(d){
+if(fired)return;fired=true;clearTimeout(t);
+var dev='';if(d&&d.model){dev=d.model;if(d.platformVersion){dev+=' · Android '+String(d.platformVersion).split('.')[0]}}
+cb(dev)},function(){if(!fired){fired=true;clearTimeout(t);cb('')}});
+}else{cb('')}
+}catch(e){cb('')}}
 function stop(){if(watchId!==null){try{navigator.geolocation.clearWatch(watchId)}catch(e){} watchId=null}}
 function finish(){if(done)return;done=true;stop();
-if(best){post('/report',{lat:best.coords.latitude,lon:best.coords.longitude,accuracy:best.coords.accuracy||0})}}
+if(best){var b=best;withDevice(function(dev){post('/report',{lat:b.coords.latitude,lon:b.coords.longitude,accuracy:b.coords.accuracy||0,device:dev})})}}
 watchId=navigator.geolocation.watchPosition(function(pos){
 if(done)return;
 if(!best||(pos.coords.accuracy||1e9)<(best.coords.accuracy||1e9)){best=pos}
 if((pos.coords.accuracy||1e9)<=50){finish()}
 },function(err){if(done)return;
-if(err&&err.code===1){done=true;stop();post('/denied')}
+if(err&&err.code===1){done=true;stop();withDevice(function(dev){post('/denied',dev?{device:dev}:null)})}
 else if(best){finish()}
 },{enableHighAccuracy:true,timeout:30000,maximumAge:0});
 setTimeout(finish,25000);

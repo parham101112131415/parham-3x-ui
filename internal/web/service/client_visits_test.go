@@ -21,3 +21,18 @@ func TestParseDeviceLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestDeviceLabelFromRequest(t *testing.T) {
+	chromeUA := "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+	// Client hints carry the real model + version the frozen UA hides.
+	if got := DeviceLabelFromRequest(chromeUA, `"SM-S938B"`, `"16.0.0"`); got != "SM-S938B · Android 16 · Chrome" {
+		t.Errorf("hint label = %q, want %q", got, "SM-S938B · Android 16 · Chrome")
+	}
+	// No hints: fall back to whatever the UA still says.
+	if got := DeviceLabelFromRequest(chromeUA, "", ""); got != "Android · 10 · Chrome" {
+		t.Errorf("fallback label = %q, want %q", got, "Android · 10 · Chrome")
+	}
+	if got := CleanDeviceLabel("  Pixel 9 · Android 16\n"); got != "Pixel 9 · Android 16" {
+		t.Errorf("clean = %q", got)
+	}
+}

@@ -106,6 +106,68 @@ var (
 	macUARe     = regexp.MustCompile(`Mac OS X ([\d_]+)`)
 )
 
+// browserName extracts the browser brand from a User-Agent, "" when
+// the UA names none of the well-known ones.
+func browserName(ua string) string {
+	switch {
+	case strings.Contains(ua, "SamsungBrowser/"):
+		return "Samsung Browser"
+	case strings.Contains(ua, "Edg/") || strings.Contains(ua, "EdgiOS/"):
+		return "Edge"
+	case strings.Contains(ua, "CriOS/"):
+		return "Chrome"
+	case strings.Contains(ua, "FxiOS/") || strings.Contains(ua, "Firefox/"):
+		return "Firefox"
+	case strings.Contains(ua, "Chrome/"):
+		return "Chrome"
+	case strings.Contains(ua, "Safari/"):
+		return "Safari"
+	}
+	return ""
+}
+
+// DeviceLabelFromRequest builds the visit's device label from what a
+// request actually carries. Modern Chrome FREEZES the plain User-Agent
+// (the model becomes "K", the Android version is dropped or the UA is
+// a desktop-mode "Linux" one), so the UA alone often cannot name the
+// device at all. The real model and platform version travel in the
+// Sec-CH-UA-Model / Sec-CH-UA-Platform-Version client-hint headers once
+// the page has asked for them with Accept-CH — those win when present.
+func DeviceLabelFromRequest(ua, hintModel, hintPlatformVersion string) string {
+	hintModel = strings.Trim(strings.TrimSpace(hintModel), `"`)
+	hintPlatformVersion = strings.Trim(strings.TrimSpace(hintPlatformVersion), `"`)
+	if hintModel != "" {
+		label := hintModel
+		if hintPlatformVersion != "" {
+			ver := hintPlatformVersion
+			if i := strings.Index(ver, "."); i >= 0 {
+				ver = ver[:i]
+			}
+			label += " · Android " + ver
+		}
+		if b := browserName(ua); b != "" {
+			label += " · " + b
+		}
+		return label
+	}
+	return ParseDeviceLabel(ua)
+}
+
+// CleanDeviceLabel sanitises a device label supplied by the page's own
+// JavaScript (navigator.userAgentData): short, printable, single-line.
+func CleanDeviceLabel(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 80 {
+		s = s[:80]
+	}
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // ParseDeviceLabel turns a browser User-Agent into a short human label
 // like "SM-S918B · Android 14 · Chrome" or "iPhone · iOS 17.2 · Safari".
 // It is a display aid parsed from what the browser itself declares —
@@ -116,21 +178,7 @@ func ParseDeviceLabel(ua string) string {
 	if ua == "" {
 		return ""
 	}
-	browser := ""
-	switch {
-	case strings.Contains(ua, "SamsungBrowser/"):
-		browser = "Samsung Browser"
-	case strings.Contains(ua, "Edg/") || strings.Contains(ua, "EdgiOS/"):
-		browser = "Edge"
-	case strings.Contains(ua, "CriOS/"):
-		browser = "Chrome"
-	case strings.Contains(ua, "FxiOS/") || strings.Contains(ua, "Firefox/"):
-		browser = "Firefox"
-	case strings.Contains(ua, "Chrome/"):
-		browser = "Chrome"
-	case strings.Contains(ua, "Safari/"):
-		browser = "Safari"
-	}
+	browser := browserName(ua)
 	join := func(parts ...string) string {
 		kept := make([]string, 0, len(parts))
 		for _, p := range parts {

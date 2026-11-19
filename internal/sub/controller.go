@@ -422,7 +422,7 @@ func (a *SUBController) maybeServeSubPage(c *gin.Context) bool {
 	// open (IP + device) in the client's visit log. Raw subscription
 	// fetches by client apps never reach this HTML path.
 	if c.Request.Method == http.MethodGet {
-		recordSubVisit(c, c.Param("subid"), "opened")
+		recordSubVisit(c, c.Param("subid"), "opened", "")
 	}
 	a.serveSubPage(c, page.BasePath, page)
 	return true
@@ -619,6 +619,10 @@ func compileUserAgentRegex(name, pattern, defaultPattern string) *regexp.Regexp 
 // page's static asset references resolve correctly when the panel runs
 // behind a URL prefix.
 func (a *SUBController) serveSubPage(c *gin.Context, basePath string, page PageData) {
+	// Ask Chromium for the real device model/version on later requests
+	// to this origin (the visit log's device labels): the plain
+	// User-Agent is frozen and often names no device at all.
+	c.Header("Accept-CH", "Sec-CH-UA-Model, Sec-CH-UA-Platform-Version, Sec-CH-UA-Mobile")
 	var body []byte
 	if diskBody, diskErr := os.ReadFile("internal/web/dist/subpage.html"); diskErr == nil {
 		body = diskBody
