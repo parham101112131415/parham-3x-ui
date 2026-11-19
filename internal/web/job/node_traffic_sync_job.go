@@ -25,9 +25,9 @@ const (
 	nodeClientIpSyncTimeout       = 6 * time.Second
 	nodeGlobalPushInterval        = 30 * time.Second
 	// nodeInboundSpeedWindowMs is the poll window node-inbound speed deltas are
-	// normalized to; it MUST match the dashboard's TRAFFIC_POLL_INTERVAL_S (5s),
+	// normalized to; it MUST match the dashboard's TRAFFIC_POLL_INTERVAL_S (1s),
 	// the fixed divisor the frontend applies to turn a delta into a rate.
-	nodeInboundSpeedWindowMs int64 = 5000
+	nodeInboundSpeedWindowMs int64 = 1000
 )
 
 // inboundSample is a node inbound's last-seen cumulative up/down and the time
