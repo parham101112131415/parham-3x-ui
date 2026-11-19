@@ -50,6 +50,8 @@ type NodeTrafficSyncJob struct {
 	// noGuidIpEndpoint tracks nodes (by id) whose client-IP attribution endpoint
 	// returned 404, so an old-build node is noted once instead of every cycle.
 	noGuidIpEndpoint sync.Map
+	// noSiteEndpoint is the same once-note for the visited-sites endpoint.
+	noSiteEndpoint sync.Map
 	// prevInboundTotals holds the previous poll's cumulative up/down (and the time
 	// the counter last changed) per node inbound tag, so the next poll can derive
 	// a per-inbound speed delta — node inbounds have no local Xray poll. Touched
@@ -485,6 +487,27 @@ func (j *NodeTrafficSyncJob) syncOne(mgr *runtime.Manager, n *model.Node, doIpSy
 		if len(guidTrees) > 0 {
 			if err := j.inboundService.MergeClientIpsByGuid(n, guidTrees); err != nil {
 				logger.Warningf("node traffic sync: merge client ip attribution from %s failed: %v", n.Name, err)
+			}
+		}
+	}
+
+	// Per-node visited sites: pull the node's guid-keyed site subtree
+	// (destination hosts aggregated from its Xray access log) so the
+	// master can show which sites a client visited on every node. Same
+	// 404 tolerance as the IP attribution pull.
+	if siteTrees, err := rt.FetchClientSitesByGuid(ipCtx); err != nil {
+		if strings.Contains(err.Error(), "HTTP 404") {
+			if _, seen := j.noSiteEndpoint.LoadOrStore(n.Id, true); !seen {
+				logger.Debugf("node traffic sync: node %s has no client-sites endpoint (old build)", n.Name)
+			}
+		} else {
+			logger.Debugf("node traffic sync: fetch client sites from %s failed: %v", n.Name, err)
+		}
+	} else {
+		j.noSiteEndpoint.Delete(n.Id)
+		if len(siteTrees) > 0 {
+			if err := j.inboundService.MergeClientSitesByGuid(n, siteTrees); err != nil {
+				logger.Warningf("node traffic sync: merge client sites from %s failed: %v", n.Name, err)
 			}
 		}
 	}

@@ -14,8 +14,14 @@ import { formatInboundLabel, formatTunnelConfigMeta } from '@/lib/inbounds/label
 import {
   geoLabel,
   geoMapsUrl,
+  gpsLabel,
+  gpsMapsUrl,
+  normalizeClientGps,
   normalizeClientIps,
+  normalizeClientSites,
+  type ClientGpsInfo,
   type ClientIpInfo,
+  type ClientSiteInfo,
 } from '@/lib/clients/ip-log';
 import { useDatepicker } from '@/hooks/useDatepicker';
 import { useClientHwids } from '@/hooks/useClientHwids';
@@ -132,6 +138,8 @@ export default function ClientInfoModal({
   const [clientIps, setClientIps] = useState<ClientIpInfo[]>([]);
   const [ipHistory, setIpHistory] = useState<ClientIpInfo[]>([]);
   const [usageRows, setUsageRows] = useState<ClientLocationUsage[]>([]);
+  const [siteRows, setSiteRows] = useState<ClientSiteInfo[]>([]);
+  const [gpsRows, setGpsRows] = useState<ClientGpsInfo[]>([]);
   const [ipsLoading, setIpsLoading] = useState(false);
   const [ipsClearing, setIpsClearing] = useState(false);
   const [ipsModalOpen, setIpsModalOpen] = useState(false);
@@ -160,6 +168,8 @@ export default function ClientInfoModal({
       setClientIps([]);
       setIpHistory([]);
       setUsageRows([]);
+      setSiteRows([]);
+      setGpsRows([]);
       setIpsModalOpen(false);
       resetHwids();
       setHwidsModalOpen(false);
@@ -195,10 +205,18 @@ export default function ClientInfoModal({
       const ipsMsg = (await HttpUtil.post(
         `/panel/api/clients/ips/${email}`,
       )) as ApiMsg<unknown[]>;
+      const sitesMsg = (await HttpUtil.post(
+        `/panel/api/clients/sites/${email}`,
+      )) as ApiMsg<unknown[]>;
+      const gpsMsg = (await HttpUtil.post(
+        `/panel/api/clients/gps/${email}`,
+      )) as ApiMsg<unknown[]>;
       if (cancelled) return;
       setUsageRows(usageMsg?.success && Array.isArray(usageMsg.obj) ? usageMsg.obj : []);
       setIpHistory(histMsg?.success ? normalizeClientIps(histMsg.obj) : []);
       setClientIps(ipsMsg?.success ? normalizeClientIps(ipsMsg.obj) : []);
+      setSiteRows(sitesMsg?.success ? normalizeClientSites(sitesMsg.obj) : []);
+      setGpsRows(gpsMsg?.success ? normalizeClientGps(gpsMsg.obj) : []);
     })();
     return () => {
       cancelled = true;
@@ -570,6 +588,47 @@ export default function ClientInfoModal({
                     )}
                   </td>
                 </tr>
+                {gpsRows.length > 0 && (
+                  <tr>
+                    <td>{t('pages.clients.browserGps')}</td>
+                    <td>
+                      {gpsRows.map((gps, idx) => (
+                        <div key={idx} style={{ fontSize: 11, marginBottom: idx < gpsRows.length - 1 ? 4 : 0 }}>
+                          📍{' '}
+                          <a href={gpsMapsUrl(gps)} target="_blank" rel="noreferrer">
+                            {gpsLabel(gps)}
+                          </a>
+                          {gps.time ? <span className="hint"> ({gps.time})</span> : null}
+                          {gps.ip ? <span className="hint"> — {gps.ip}</span> : null}
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+                {siteRows.length > 0 && (
+                  <tr>
+                    <td>{t('pages.clients.visitedSites')}</td>
+                    <td>
+                      <div style={{ maxHeight: 150, overflowY: 'auto' }}>
+                        {siteRows.map((site, idx) => (
+                          <div key={idx} style={{ fontSize: 11, marginBottom: 3 }}>
+                            <span style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
+                              {site.host}
+                            </span>{' '}
+                            <Tag style={{ marginInlineStart: 4 }}>
+                              {site.count} {t('pages.clients.siteConnections')}
+                            </Tag>
+                            {site.lastSeen ? (
+                              <span className="hint">
+                                {t('pages.clients.lastVisit')}: {site.lastSeen}
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {(traffic?.resetMax ?? 0) > 0 && (
                   <tr>
                     <td>{t('pages.clients.renewsUsed')}</td>

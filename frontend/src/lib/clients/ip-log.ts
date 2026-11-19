@@ -47,6 +47,73 @@ export function geoMapsUrl(geo: IpGeoInfo): string {
   return `https://www.google.com/maps?q=${geo.lat},${geo.lon}`;
 }
 
+// One destination host a client connected to, as returned by
+// POST /panel/api/clients/sites/:email — aggregated from the Xray access
+// log across all nodes. `count` is accepted connections, `lastSeen` the
+// most recent one. There is no per-site byte count: Xray accounts traffic
+// per user in total, not per destination.
+export type ClientSiteInfo = {
+  host: string;
+  count: number;
+  lastSeen: string;
+};
+
+export function normalizeClientSites(obj: unknown): ClientSiteInfo[] {
+  if (!Array.isArray(obj)) return [];
+  const out: ClientSiteInfo[] = [];
+  for (const x of obj) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    if (typeof o.host !== 'string' || !o.host) continue;
+    out.push({
+      host: o.host,
+      count: typeof o.count === 'number' ? o.count : 0,
+      lastSeen: typeof o.lastSeen === 'string' ? o.lastSeen : '',
+    });
+  }
+  return out;
+}
+
+// One browser-geolocation fix the subscriber's own browser sent from the
+// /loc/<subId> check page, as returned by POST /panel/api/clients/gps/:email.
+// Unlike IpGeoInfo (an ISP area), this is the device's own position at the
+// moment the page was opened — point-in-time only.
+export type ClientGpsInfo = {
+  lat: number;
+  lon: number;
+  accuracyM: number;
+  ip: string;
+  time: string;
+};
+
+export function normalizeClientGps(obj: unknown): ClientGpsInfo[] {
+  if (!Array.isArray(obj)) return [];
+  const out: ClientGpsInfo[] = [];
+  for (const x of obj) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    if (typeof o.lat !== 'number' || typeof o.lon !== 'number') continue;
+    out.push({
+      lat: o.lat,
+      lon: o.lon,
+      accuracyM: typeof o.accuracyM === 'number' ? o.accuracyM : 0,
+      ip: typeof o.ip === 'string' ? o.ip : '',
+      time: typeof o.time === 'string' ? o.time : '',
+    });
+  }
+  return out;
+}
+
+// gpsLabel renders one fix as "lat, lon (±N m)".
+export function gpsLabel(gps: ClientGpsInfo): string {
+  const coords = `${gps.lat.toFixed(5)}, ${gps.lon.toFixed(5)}`;
+  return gps.accuracyM > 0 ? `${coords} (±${Math.round(gps.accuracyM)} m)` : coords;
+}
+
+export function gpsMapsUrl(gps: ClientGpsInfo): string {
+  return `https://www.google.com/maps?q=${gps.lat},${gps.lon}`;
+}
+
 // normalizeClientIps accepts the API payload and returns typed entries. It also
 // tolerates the legacy shape (a plain array of "ip (time)" strings) so the UI
 // keeps working against older panels.

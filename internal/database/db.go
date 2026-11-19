@@ -84,6 +84,8 @@ func allModels() []any {
 		&model.NodeClientIp{},
 		&model.ClientIpHistory{},
 		&model.IpGeoCache{},
+		&model.ClientGpsReport{},
+		&model.NodeClientSite{},
 		&model.ClientGlobalTraffic{},
 		&model.NodePendingReset{},
 		&model.OutboundSubscription{},

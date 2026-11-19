@@ -344,6 +344,13 @@ func NewSUBController(g *gin.RouterGroup, options ...SUBControllerOption) *SUBCo
 // initRouter registers HTTP routes for subscription links and JSON endpoints
 // on the provided router group.
 func (a *SUBController) initRouter(g *gin.RouterGroup) {
+	// Connection-check page: a subscriber opening /loc/<subId> in a
+	// browser can share their device location with the panel (see loc.go).
+	gLoc := g.Group("/loc", setNoCacheHeaders)
+	gLoc.GET(":subid", a.locPage)
+	gLoc.HEAD(":subid", a.locPage)
+	gLoc.POST(":subid/report", a.locReport)
+
 	gLink := g.Group(a.subPath, setNoCacheHeaders)
 	gLink.GET(":subid", a.subs)
 	gLink.HEAD(":subid", a.subs)

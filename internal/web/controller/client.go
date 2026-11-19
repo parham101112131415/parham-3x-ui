@@ -85,6 +85,8 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/updateTraffic/:email", a.updateTrafficByEmail)
 	g.POST("/ips/:email", a.getIps)
 	g.POST("/ipHistory/:email", a.getIpHistory)
+	g.POST("/sites/:email", a.getSites)
+	g.POST("/gps/:email", a.getGps)
 	g.POST("/usageByLocation/:email", a.getUsageByLocation)
 	g.POST("/clearIps/:email", a.clearIps)
 	g.POST("/hwids/:email", a.getHwids)
@@ -93,6 +95,7 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/onlines", a.onlines)
 	g.POST("/onlinesByGuid", a.onlinesByGuid)
 	g.POST("/clientIpsByGuid", a.clientIpsByGuid)
+	g.POST("/clientSitesByGuid", a.clientSitesByGuid)
 	g.POST("/activeInbounds", a.activeInbounds)
 	g.POST("/lastOnline", a.lastOnline)
 }
@@ -619,6 +622,21 @@ func (a *ClientController) getUsageByLocation(c *gin.Context) {
 
 func (a *ClientController) clientIpsByGuid(c *gin.Context) {
 	data, err := a.inboundService.GetClientIpsByGuid()
+	jsonObj(c, data, err)
+}
+
+func (a *ClientController) getSites(c *gin.Context) {
+	infos, err := a.inboundService.GetClientSitesWithNodes(c.Param("email"))
+	jsonObj(c, infos, err)
+}
+
+func (a *ClientController) getGps(c *gin.Context) {
+	infos, err := service.GetClientGpsReports(c.Param("email"))
+	jsonObj(c, infos, err)
+}
+
+func (a *ClientController) clientSitesByGuid(c *gin.Context) {
+	data, err := a.inboundService.GetClientSitesByGuid()
 	jsonObj(c, data, err)
 }
 

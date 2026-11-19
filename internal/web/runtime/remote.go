@@ -1020,3 +1020,20 @@ func (r *Remote) FetchClientIpsByGuid(ctx context.Context) (map[string]map[strin
 	}
 	return out, nil
 }
+
+// FetchClientSitesByGuid pulls the node's per-node visited-sites subtree
+// (guid -> email -> destination-host entries aggregated from its Xray
+// access log). Returns an empty map for older nodes that lack the endpoint.
+func (r *Remote) FetchClientSitesByGuid(ctx context.Context) (map[string]map[string][]model.ClientSiteEntry, error) {
+	env, err := r.do(ctx, http.MethodPost, "panel/api/clients/clientSitesByGuid", nil)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string][]model.ClientSiteEntry{}
+	if len(env.Obj) > 0 {
+		if err := json.Unmarshal(env.Obj, &out); err != nil {
+			return nil, fmt.Errorf("decode client sites by guid: %w", err)
+		}
+	}
+	return out, nil
+}

