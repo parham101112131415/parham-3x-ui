@@ -1,9 +1,11 @@
 package controller
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"slices"
@@ -79,6 +81,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/amneziawglogs/:count", a.getAmneziaWGLogs)
 	g.POST("/importDB", a.importDB)
+	g.POST("/restoreDbBackup", a.restoreDbBackup)
 	g.POST("/ghBackupRun", a.ghBackupRun)
 	g.POST("/ghBackupImport", a.ghBackupImport)
 	g.POST("/getNewEchCert", a.getNewEchCert)
@@ -400,6 +403,31 @@ func (a *ServerController) importDB(c *gin.Context) {
 	// browser's restartPanel follow-up can 401 once the imported users land (#6446).
 	_ = a.panelService.RestartPanel(3 * time.Second)
 	jsonObj(c, I18nWeb(c, "pages.index.importDatabaseSuccess"), nil)
+}
+
+// memUpload adapts an in-memory byte slice to multipart.File for ImportDB.
+type memUpload struct {
+	*bytes.Reader
+}
+
+func (memUpload) Close() error { return nil }
+
+// restoreDbBackup receives a database file pushed by the main panel (via
+// this panel's API token) and imports it as this panel's own database,
+// keeping this machine's host settings, then restarts the panel — the
+// receiving half of a full-panel backup bundle restore.
+func (a *ServerController) restoreDbBackup(c *gin.Context) {
+	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 256<<20))
+	if err != nil || len(data) == 0 {
+		jsonMsg(c, "restoreDbBackup: empty or unreadable body", err)
+		return
+	}
+	if err := a.serverService.ImportDB(memUpload{bytes.NewReader(data)}, true); err != nil {
+		jsonMsg(c, "restoreDbBackup: import failed", err)
+		return
+	}
+	_ = a.panelService.RestartPanel(3 * time.Second)
+	jsonObj(c, "Database restored; panel is restarting", nil)
 }
 
 // ghBackupRun pushes a database backup to the configured GitHub repo now.

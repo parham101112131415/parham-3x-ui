@@ -1835,6 +1835,27 @@ func (s *ServerService) ImportDB(file multipart.File, keepHostSettings bool) err
 	if database.IsPostgres() {
 		return s.importPostgresDB(file, keepHostSettings)
 	}
+	// A full-panel backup bundle (one zip holding every location's database)
+	// is unwrapped to this panel's own database first; the remaining node
+	// databases are distributed to their nodes after the local import below.
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		return common.NewErrorf("Error reading uploaded file: %v", err)
+	}
+	var bundle *ParsedBundle
+	if IsBundle(raw) {
+		parsed, perr := ParseBundle(raw)
+		if perr != nil {
+			return common.NewErrorf("Invalid backup bundle: %v", perr)
+		}
+		own, serr := parsed.selectOwnDb()
+		if serr != nil {
+			return serr
+		}
+		bundle = parsed
+		raw = own
+	}
+	file = bytesFile{bytes.NewReader(raw)}
 	kind, err := sniffUploadKind(file)
 	if err != nil {
 		return common.NewErrorf("Error reading uploaded file: %v", err)
@@ -1958,6 +1979,13 @@ func (s *ServerService) ImportDB(file multipart.File, keepHostSettings bool) err
 		if rerr := os.Remove(fallbackPath); rerr != nil {
 			logger.Warningf("Warning: failed to remove fallback file: %v", rerr)
 		}
+	}
+
+	// A bundle import also restores every other location: push each node's
+	// database to its node (unreachable nodes keep a pending restore that
+	// the heartbeat job retries).
+	if bundle != nil && len(bundle.NodeDbs) > 0 {
+		(&GithubBackupService{}).RestoreNodeDbsFromBundle(context.Background(), bundle)
 	}
 	return nil
 }

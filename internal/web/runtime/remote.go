@@ -332,6 +332,101 @@ func (r *Remote) do(ctx context.Context, method, path string, body any) (*envelo
 	return &env, nil
 }
 
+// doRaw performs an authenticated node API call with a raw byte body and
+// returns the raw response body, for the two backup flows whose payloads are
+// whole database files rather than JSON envelopes: pulling a node's database
+// (a file download) and pushing a database back for restore (the response is
+// still the standard envelope, parsed by the caller when needed). The wire
+// integrity hash is attached exactly like do() does.
+func (r *Remote) doRaw(ctx context.Context, method, path string, body []byte, contentType string, timeout time.Duration) ([]byte, error) {
+	if r.node.ApiToken == "" && r.node.TlsVerifyMode != "mtls" {
+		return nil, errors.New("node has no API token configured")
+	}
+	base, err := r.baseURL()
+	if err != nil {
+		return nil, err
+	}
+	target := base + strings.TrimPrefix(path, "/")
+
+	var reqBody io.Reader
+	if body != nil {
+		reqBody = bytes.NewReader(body)
+	}
+	cctx, cancel := context.WithTimeout(netsafe.ContextWithAllowPrivate(ctx, r.node.AllowPrivateAddress), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(cctx, method, target, reqBody)
+	if err != nil {
+		return nil, err
+	}
+	if r.node.ApiToken != "" {
+		token, err := nodetoken.Decrypt(r.node.Id, r.node.ApiToken)
+		if err != nil {
+			return nil, fmt.Errorf("decrypt node token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set(wirecodec.MasterPushHeader, "1")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if body != nil {
+		req.Header.Set(wirecodec.HashHeader, wirecodec.Sha256Hex(body))
+	}
+	client, err := r.httpClient()
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+	r.recordCaps(resp.Header)
+	if resp.StatusCode != http.StatusOK {
+		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, errBodyDiagBytes))
+		if msg := bytes.TrimSpace(snippet); len(msg) > 0 {
+			return nil, fmt.Errorf("%s %s: HTTP %d: %q", method, path, resp.StatusCode, msg)
+		}
+		return nil, fmt.Errorf("%s %s: HTTP %d", method, path, resp.StatusCode)
+	}
+	if resp.ContentLength > maxRemoteResponseBytes {
+		return nil, fmt.Errorf("%s %s: %w (content-length %d, cap %d)", method, path, errRemoteResponseTooLarge, resp.ContentLength, maxRemoteResponseBytes)
+	}
+	raw, err := readCappedBody(resp.Body, maxRemoteResponseBytes)
+	if err != nil {
+		if errors.Is(err, errRemoteResponseTooLarge) {
+			return nil, fmt.Errorf("%s %s: %w (cap %d bytes)", method, path, err, maxRemoteResponseBytes)
+		}
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	return raw, nil
+}
+
+// FetchDb downloads the node's own database backup (its /server/getDb file
+// endpoint) for the main panel's full-panel backup bundle.
+func (r *Remote) FetchDb(ctx context.Context) ([]byte, error) {
+	return r.doRaw(ctx, http.MethodGet, "panel/api/server/getDb", nil, "", 60*time.Second)
+}
+
+// RestoreDb pushes a database file to the node and asks it to import it as
+// its own database (keeping the node's host settings) and restart. Used to
+// distribute a full-panel backup bundle's per-node databases.
+func (r *Remote) RestoreDb(ctx context.Context, db []byte) error {
+	raw, err := r.doRaw(ctx, http.MethodPost, "panel/api/server/restoreDbBackup", db, "application/octet-stream", 120*time.Second)
+	if err != nil {
+		return err
+	}
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return fmt.Errorf("decode restore response: %w", err)
+	}
+	if !env.Success {
+		return &remoteAPIError{msg: env.Msg}
+	}
+	return nil
+}
+
 func (r *Remote) resolveRemoteID(ctx context.Context, tag string) (int, error) {
 	if id, ok := r.cacheGetTag(tag); ok {
 		return id, nil

@@ -86,6 +86,10 @@ func (j *NodeHeartbeatJob) Run() {
 	wg.Wait()
 	publishNodeTransitions(j.healthTransitions(probes))
 
+	// Deliver any pending per-node database restores left over from a
+	// full-panel bundle import (self-throttled inside the service).
+	(&service.GithubBackupService{}).PushPendingNodeRestores(context.Background())
+
 	if !websocket.HasClients() {
 		return
 	}

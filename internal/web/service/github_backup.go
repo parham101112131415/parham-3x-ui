@@ -8,16 +8,24 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
+	"github.com/mhsanaei/3x-ui/v3/internal/config"
+	"github.com/mhsanaei/3x-ui/v3/internal/database"
+	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
+	"github.com/mhsanaei/3x-ui/v3/internal/logger"
 	"github.com/mhsanaei/3x-ui/v3/internal/util/common"
+	"github.com/mhsanaei/3x-ui/v3/internal/web/runtime"
 )
 
-// GithubBackupService pushes this panel's database backup to a GitHub repo
-// and pulls it back for restore. It mirrors the old panel's GitHub backup:
-// one fixed file per panel, replaced on every run, so a dead host can be
-// rebuilt by importing that file on a fresh panel.
+// GithubBackupService pushes the full-panel backup bundle to a GitHub repo
+// and pulls it back for restore: ONE fixed file holding the main panel's
+// database plus every node's database, replaced on every run, so the whole
+// multi-location panel is rebuilt by importing that single file.
 //
 // Writes go through the Git Data API (blob -> tree -> commit -> ref) rather
 // than the Contents API so backups larger than 1 MB work unchanged.
@@ -158,18 +166,237 @@ type ghBlob struct {
 	Content string `json:"content"`
 }
 
-// BackupNow exports the database and pushes it to the repo, replacing the
-// panel's fixed backup file. Used by the hourly job and the manual button.
+// BackupNow builds the full-panel backup bundle — this panel's database
+// plus every registered node's database, pulled live from the nodes — and
+// pushes it to the repo as ONE file, replacing the previous bundle. Used by
+// the hourly job and the manual button. On PostgreSQL the historical
+// single-file database backup is kept (bundles are a SQLite flow).
 func (s *GithubBackupService) BackupNow(ctx context.Context) error {
 	cfg, err := s.config()
 	if err != nil {
 		return err
 	}
-	data, err := s.serverService.GetDb()
+	if database.IsPostgres() {
+		data, err := s.serverService.GetDb()
+		if err != nil {
+			return err
+		}
+		return s.push(ctx, cfg, data)
+	}
+	own, err := s.serverService.GetDb()
 	if err != nil {
 		return err
 	}
-	return s.push(ctx, cfg, data)
+	guid, _ := s.settingService.GetPanelGuid()
+	nodes, err := s.allNodes()
+	if err != nil {
+		return err
+	}
+	entries := make([]BundleNodeData, 0, len(nodes))
+	for _, n := range nodes {
+		if !n.Enable || n.Guid == "" {
+			continue
+		}
+		data, stale, ok := s.nodeDbForBackup(ctx, n)
+		if !ok {
+			logger.Warningf("GitHub backup: no database available for node %s (%s); recording it as missing in the bundle", n.Name, n.Guid)
+			entries = append(entries, BundleNodeData{Guid: n.Guid, Name: n.Name, Missing: true})
+			continue
+		}
+		entries = append(entries, BundleNodeData{Guid: n.Guid, Name: n.Name, Data: data, Stale: stale})
+	}
+	bundle, err := BuildBundle(own, guid, entries)
+	if err != nil {
+		return err
+	}
+	return s.push(ctx, cfg, bundle)
+}
+
+func (s *GithubBackupService) allNodes() ([]*model.Node, error) {
+	db := database.GetDB()
+	if db == nil {
+		return nil, nil
+	}
+	var nodes []*model.Node
+	if err := db.Find(&nodes).Error; err != nil {
+		return nil, err
+	}
+	return nodes, nil
+}
+
+func (s *GithubBackupService) remoteFor(n *model.Node) (*runtime.Remote, error) {
+	if mgr := runtime.GetManager(); mgr != nil {
+		return mgr.RemoteFor(n)
+	}
+	return runtime.NewRemote(n, nil), nil
+}
+
+// nodeDbCacheDir holds the last successfully pulled copy of each node's
+// database, next to this panel's own database file.
+func nodeDbCacheDir() string {
+	return filepath.Join(filepath.Dir(config.GetDBPath()), "node-db-cache")
+}
+
+// nodeDbForBackup pulls the node's current database; on failure it falls
+// back to the cached copy from the last successful pull (marked stale).
+func (s *GithubBackupService) nodeDbForBackup(ctx context.Context, n *model.Node) (data []byte, stale bool, ok bool) {
+	cachePath := filepath.Join(nodeDbCacheDir(), n.Guid+".db")
+	if rt, err := s.remoteFor(n); err == nil {
+		if fresh, err := rt.FetchDb(ctx); err == nil && len(fresh) > 0 {
+			if err := os.MkdirAll(nodeDbCacheDir(), 0o755); err == nil {
+				_ = os.WriteFile(cachePath, fresh, 0o644)
+			}
+			return fresh, false, true
+		} else if err != nil {
+			logger.Warningf("GitHub backup: pulling database of node %s failed: %v", n.Name, err)
+		}
+	}
+	if cached, err := os.ReadFile(cachePath); err == nil && len(cached) > 0 {
+		return cached, true, true
+	}
+	return nil, false, false
+}
+
+// pendingNodeRestoreDir holds per-node databases from a bundle import that
+// could not be pushed to their node yet; the heartbeat job retries them.
+func pendingNodeRestoreDir() string {
+	return filepath.Join(filepath.Dir(config.GetDBPath()), "pending-node-restore")
+}
+
+type pendingNodeRestore struct {
+	Guid string `json:"guid"`
+	Name string `json:"name"`
+}
+
+func stashPendingNodeDb(guid, name string, data []byte) error {
+	dir := pendingNodeRestoreDir()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	meta, _ := json.Marshal(pendingNodeRestore{Guid: guid, Name: name})
+	if err := os.WriteFile(filepath.Join(dir, guid+".json"), meta, 0o644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, guid+".db"), data, 0o644)
+}
+
+// RestoreNodeDbsFromBundle pushes every node database in an imported bundle
+// to its node (matched by guid, falling back to name, against the CURRENT —
+// freshly restored — node table). Nodes that cannot be reached keep their
+// database as a pending restore for the heartbeat job to retry.
+func (s *GithubBackupService) RestoreNodeDbsFromBundle(ctx context.Context, b *ParsedBundle) {
+	if len(b.NodeDbs) == 0 {
+		return
+	}
+	nodes, err := s.allNodes()
+	if err != nil {
+		logger.Warning("bundle restore: cannot load nodes to distribute databases: ", err)
+		return
+	}
+	byGuid := make(map[string]*model.Node, len(nodes))
+	byName := make(map[string]*model.Node, len(nodes))
+	for _, n := range nodes {
+		if n.Guid != "" {
+			byGuid[n.Guid] = n
+		}
+		byName[n.Name] = n
+	}
+	nameByGuid := make(map[string]string, len(b.Manifest.Nodes))
+	for _, e := range b.Manifest.Nodes {
+		nameByGuid[e.Guid] = e.Name
+	}
+	for guid, data := range b.NodeDbs {
+		node := byGuid[guid]
+		if node == nil {
+			node = byName[nameByGuid[guid]]
+		}
+		if node == nil {
+			logger.Warningf("bundle restore: no registered node matches %s (%s); keeping its database as a pending restore", nameByGuid[guid], guid)
+			_ = stashPendingNodeDb(guid, nameByGuid[guid], data)
+			continue
+		}
+		pctx, cancel := context.WithTimeout(ctx, 150*time.Second)
+		err := s.pushDbToNode(pctx, node, data)
+		cancel()
+		if err != nil {
+			logger.Warningf("bundle restore: pushing database to node %s failed (%v); keeping it as a pending restore", node.Name, err)
+			_ = stashPendingNodeDb(guid, nameByGuid[guid], data)
+			continue
+		}
+		logger.Infof("bundle restore: database of node %s restored", node.Name)
+	}
+}
+
+func (s *GithubBackupService) pushDbToNode(ctx context.Context, n *model.Node, data []byte) error {
+	rt, err := s.remoteFor(n)
+	if err != nil {
+		return err
+	}
+	return rt.RestoreDb(ctx, data)
+}
+
+var lastPendingPushUnix atomic.Int64
+
+// PushPendingNodeRestores retries bundle databases that an earlier import
+// could not deliver. Called from the node heartbeat job; self-throttled and
+// a no-op when nothing is pending.
+func (s *GithubBackupService) PushPendingNodeRestores(ctx context.Context) {
+	now := time.Now().Unix()
+	last := lastPendingPushUnix.Load()
+	if now-last < 45 {
+		return
+	}
+	if !lastPendingPushUnix.CompareAndSwap(last, now) {
+		return
+	}
+	dir := pendingNodeRestoreDir()
+	metas, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil || len(metas) == 0 {
+		return
+	}
+	nodes, err := s.allNodes()
+	if err != nil {
+		return
+	}
+	byGuid := make(map[string]*model.Node, len(nodes))
+	byName := make(map[string]*model.Node, len(nodes))
+	for _, n := range nodes {
+		if n.Guid != "" {
+			byGuid[n.Guid] = n
+		}
+		byName[n.Name] = n
+	}
+	for _, metaPath := range metas {
+		raw, err := os.ReadFile(metaPath)
+		if err != nil {
+			continue
+		}
+		var meta pendingNodeRestore
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			continue
+		}
+		node := byGuid[meta.Guid]
+		if node == nil {
+			node = byName[meta.Name]
+		}
+		if node == nil || !node.Enable || node.Status != "online" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, meta.Guid+".db"))
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		pctx, cancel := context.WithTimeout(ctx, 150*time.Second)
+		err = s.pushDbToNode(pctx, node, data)
+		cancel()
+		if err != nil {
+			logger.Warningf("pending restore: pushing database to node %s still failing: %v", node.Name, err)
+			continue
+		}
+		logger.Infof("pending restore: database of node %s restored", node.Name)
+		_ = os.Remove(metaPath)
+		_ = os.Remove(filepath.Join(dir, meta.Guid+".db"))
+	}
 }
 
 func (s *GithubBackupService) push(ctx context.Context, cfg *ghBackupConfig, data []byte) error {

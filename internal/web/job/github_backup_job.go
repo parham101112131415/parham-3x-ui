@@ -8,9 +8,9 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/web/service"
 )
 
-// GithubBackupJob pushes the panel database to the configured GitHub repo
-// once an hour when the GitHub backup is enabled, mirroring the old panel's
-// backup: one fixed file per panel, replaced on every run.
+// GithubBackupJob pushes the full-panel backup bundle to the configured
+// GitHub repo once an hour when the GitHub backup is enabled: ONE fixed
+// file holding every location's database, replaced on every run.
 type GithubBackupJob struct {
 	settingService service.SettingService
 	backupService  service.GithubBackupService
