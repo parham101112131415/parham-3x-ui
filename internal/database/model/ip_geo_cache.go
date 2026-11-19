@@ -13,6 +13,8 @@ type IpGeoCache struct {
 	Lon       float64 `json:"lon" gorm:"default:0"`
 	City      string  `json:"city" gorm:"default:''"`
 	Country   string  `json:"country" gorm:"default:''"`
+	RadiusKm  int     `json:"radiusKm" gorm:"default:0"`  // MaxMind accuracy radius in km; 0 = unknown
 	Found     bool    `json:"found" gorm:"default:false"` // false = provider had no location for this IP
+	V         int     `json:"v" gorm:"default:0"`         // cache schema version; rows below the current version are refreshed once
 	UpdatedAt int64   `json:"updatedAt" gorm:"default:0"` // unix seconds
 }

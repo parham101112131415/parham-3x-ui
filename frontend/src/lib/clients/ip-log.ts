@@ -8,6 +8,9 @@ export type IpGeoInfo = {
   lon: number;
   city: string;
   country: string;
+  // MaxMind accuracy radius in km, when known: the IP is somewhere within
+  // this distance of the coordinates, not exactly at the pin.
+  radiusKm?: number;
 };
 
 export type ClientIpInfo = {
@@ -26,14 +29,17 @@ function normalizeGeo(v: unknown): IpGeoInfo | null {
     lon: o.lon,
     city: typeof o.city === 'string' ? o.city : '',
     country: typeof o.country === 'string' ? o.country : '',
+    radiusKm: typeof o.radiusKm === 'number' && o.radiusKm > 0 ? o.radiusKm : undefined,
   };
 }
 
-// geoLabel renders one IP location as "City, Country (lat, lon)".
+// geoLabel renders one IP location as "City, Country (lat, lon)", with a
+// "±N km" suffix when the accuracy radius is known.
 export function geoLabel(geo: IpGeoInfo): string {
   const place = [geo.city, geo.country].filter((s) => s && s.length > 0).join(', ');
   const coords = `${geo.lat.toFixed(4)}, ${geo.lon.toFixed(4)}`;
-  return place ? `${place} (${coords})` : coords;
+  const base = place ? `${place} (${coords})` : coords;
+  return geo.radiusKm ? `${base} ±${geo.radiusKm} km` : base;
 }
 
 // geoMapsUrl opens the IP's coordinates in Google Maps.

@@ -51,6 +51,15 @@ COPY --from=builder /app/build/ /app/
 COPY --from=builder /app/DockerEntrypoint.sh /app/
 COPY --from=builder /app/x-ui.sh /usr/bin/x-ui
 COPY --from=builder /app/internal/web/translation /app/internal/web/translation
+# GeoLite2 City database (community mirror of MaxMind's free database):
+# the panel resolves client-IP locations locally and shows the accuracy
+# radius, so no user IP ever leaves the server for a geo lookup.
+RUN mkdir -p /usr/local/share/geoip \
+  && curl -fL -o /usr/local/share/geoip/GeoLite2-City.mmdb \
+    "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb" \
+  && test "$(stat -c%s /usr/local/share/geoip/GeoLite2-City.mmdb)" -gt 10000000
+ENV PARHAM_GEOLITE2_CITY_DB="/usr/local/share/geoip/GeoLite2-City.mmdb"
+
 COPY nginx/default.conf /etc/nginx/http.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/hidden.conf /app/nginx-hidden.conf
