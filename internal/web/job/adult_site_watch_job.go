@@ -19,41 +19,47 @@ import (
 // "adult.site" is present in tgEnabledEvents.
 const adultSiteEvent = "adult.site"
 
-// adultAlertCooldown is the minimum gap between two alerts for the same
-// client visiting the same site. Without it, a single browsing session
-// (whose hosts reappear in the access log for as long as it lasts)
-// would re-alert every minute.
-const adultAlertCooldown = 6 * time.Hour
+// adultVisitGapSeconds separates two visits to the same site. While a
+// client is on a site, its record's lastSeen advances every few seconds
+// (each new connection the access log folds in); that whole stretch is
+// ONE visit and alerts once, the moment it starts. When activity on the
+// site stops and resumes after a gap larger than this, that is a new
+// entry — a new visit — and it alerts again, immediately. There is no
+// cooldown: the gap only tells one continuous visit apart from the next
+// entry, it never suppresses a new entry.
+const adultVisitGapSeconds = 120
 
 // AdultSiteWatchJob watches the per-client visited-site records (the
-// same data the panel's visited-sites section shows) and sends ONE
-// Telegram alert per client when a client is seen on an adult (18+)
-// site — see service.AdultSiteIdentity for how a host is judged. It
-// runs wherever the panel's Telegram bot runs (the master): the site
-// table there holds every location's merged records, so one watcher
-// covers all locations. Nothing is enforced; the operator judges.
+// same data the panel's visited-sites section shows) and sends a
+// Telegram alert the moment a client enters an adult (18+) site — see
+// service.AdultSiteIdentity for how a host is judged. It scans the
+// shared records of every client, so every client is covered from
+// their first recorded visit on; a newly created client needs no
+// registration and gets a watcher automatically. It runs wherever the
+// panel's Telegram bot runs (the master): the site table there holds
+// every location's merged records, so one watcher covers all
+// locations. Nothing is enforced; the operator judges.
 type AdultSiteWatchJob struct {
 	tgbotService tgbot.Tgbot
 	seeded       bool
-	seen         map[string]int64     // guid|email|host -> lastSeen watermark
-	alerts       map[string]time.Time // email|site -> last alert time
+	seen         map[string]int64 // guid|email|host -> lastSeen watermark
 }
 
 // NewAdultSiteWatchJob creates a new adult-site watch job instance.
 func NewAdultSiteWatchJob() *AdultSiteWatchJob {
 	return &AdultSiteWatchJob{
-		seen:   map[string]int64{},
-		alerts: map[string]time.Time{},
+		seen: map[string]int64{},
 	}
 }
 
 type adultSiteHit struct {
 	Email string
 	Guid  string
-	Site  string
+	Site  string // the full host exactly as visited (e.g. www.xvideos.com)
+	When  int64  // unix seconds of the visit, from the access log
 }
 
-// Run performs one watch pass and alerts on newly-seen adult visits.
+// Run performs one watch pass and alerts on clients entering adult sites.
 func (j *AdultSiteWatchJob) Run() {
 	if !j.tgbotService.IsRunning() {
 		return
@@ -80,9 +86,13 @@ func (j *AdultSiteWatchJob) Run() {
 		return
 	}
 
-	hits := j.scan(rows, time.Now())
+	hits := j.scan(rows)
 	if len(hits) == 0 {
 		return
+	}
+	loc, err := (&service.SettingService{}).GetTimeLocation()
+	if err != nil || loc == nil {
+		loc = time.Local
 	}
 	labels := service.LocationLabels()
 	byUser := map[string][]adultSiteHit{}
@@ -97,15 +107,19 @@ func (j *AdultSiteWatchJob) Run() {
 	sort.Strings(order)
 	for _, key := range order {
 		group := byUser[key]
-		j.tgbotService.NotifyAdmins(adultAlertText(group[0].Email, labels[group[0].Guid], group))
+		j.tgbotService.NotifyAdmins(adultAlertText(group[0].Email, labels[group[0].Guid], group, loc))
 	}
 }
 
 // scan folds one pass over the site records into the job's watermarks
-// and returns the alert-worthy hits. The first pass after a start only
-// seeds the watermarks (baseline): sites visited before the watcher
-// started are history, not news, and must not burst-alert on boot.
-func (j *AdultSiteWatchJob) scan(rows []model.NodeClientSite, now time.Time) []adultSiteHit {
+// and returns the alert-worthy hits: a client ENTERING an adult site.
+// The first pass after a start only seeds the watermarks (baseline):
+// sites visited before the watcher started are history, not news, and
+// must not burst-alert on boot. After that, a host alerts when it is
+// first seen for the client, or when its lastSeen resumes after a gap
+// larger than adultVisitGapSeconds (a new entry); continuous activity
+// inside one visit only moves the watermark.
+func (j *AdultSiteWatchJob) scan(rows []model.NodeClientSite) []adultSiteHit {
 	var hits []adultSiteHit
 	for _, row := range rows {
 		var entries []model.ClientSiteEntry
@@ -114,49 +128,57 @@ func (j *AdultSiteWatchJob) scan(rows []model.NodeClientSite, now time.Time) []a
 		}
 		for _, e := range entries {
 			key := row.NodeGuid + "|" + row.Email + "|" + e.Host
-			if e.LastSeen <= j.seen[key] {
+			prev := j.seen[key]
+			if e.LastSeen <= prev {
 				continue
 			}
 			j.seen[key] = e.LastSeen
 			if !j.seeded {
 				continue
 			}
-			site, ok := service.AdultSiteIdentity(e.Host)
-			if !ok {
+			if _, ok := service.AdultSiteIdentity(e.Host); !ok {
 				continue
 			}
-			alertKey := row.Email + "|" + site
-			if now.Sub(j.alerts[alertKey]) < adultAlertCooldown {
-				continue
+			if prev != 0 && e.LastSeen-prev <= adultVisitGapSeconds {
+				continue // same continuous visit, already alerted at entry
 			}
-			j.alerts[alertKey] = now
-			hits = append(hits, adultSiteHit{Email: row.Email, Guid: row.NodeGuid, Site: site})
+			hits = append(hits, adultSiteHit{Email: row.Email, Guid: row.NodeGuid, Site: e.Host, When: e.LastSeen})
 		}
 	}
 	j.seeded = true
 	return hits
 }
 
-func adultAlertText(email, location string, hits []adultSiteHit) string {
+func adultAlertText(email, location string, hits []adultSiteHit, loc *time.Location) string {
 	if location == "" {
 		location = "?"
 	}
-	sites := make([]string, 0, len(hits))
-	for _, h := range hits {
-		sites = append(sites, h.Site)
+	if loc == nil {
+		loc = time.Local
 	}
-	sort.Strings(sites)
+	sorted := make([]adultSiteHit, len(hits))
+	copy(sorted, hits)
+	sort.Slice(sorted, func(a, b int) bool {
+		if sorted[a].When != sorted[b].When {
+			return sorted[a].When < sorted[b].When
+		}
+		return sorted[a].Site < sorted[b].Site
+	})
+	when := func(ts int64) string {
+		return time.Unix(ts, 0).In(loc).Format("15:04:05 — 2006-01-02")
+	}
 
 	var b strings.Builder
 	b.WriteString("🔞 <b>بازدید از سایت بزرگسالان (۱۸+)</b>\n")
 	fmt.Fprintf(&b, "👤 کاربر: <b>%s</b>\n", email)
 	fmt.Fprintf(&b, "🌍 لوکیشن: %s\n", location)
-	if len(sites) == 1 {
-		fmt.Fprintf(&b, "🔗 سایت: %s", sites[0])
+	if len(sorted) == 1 {
+		fmt.Fprintf(&b, "🔗 سایت: %s\n", sorted[0].Site)
+		fmt.Fprintf(&b, "🕐 زمان: %s", when(sorted[0].When))
 	} else {
 		b.WriteString("🔗 سایت‌ها:\n")
-		for _, s := range sites {
-			fmt.Fprintf(&b, "• %s\n", s)
+		for _, h := range sorted {
+			fmt.Fprintf(&b, "• %s — 🕐 %s\n", h.Site, when(h.When))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

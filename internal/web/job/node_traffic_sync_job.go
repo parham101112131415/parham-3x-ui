@@ -21,7 +21,7 @@ const (
 	nodeTrafficSyncConcurrency    = 32
 	nodeTrafficSyncRequestTimeout = 4 * time.Second
 	nodeReconcileTimeout          = 30 * time.Second
-	nodeClientIpSyncInterval      = 10 * time.Second
+	nodeClientIpSyncInterval      = 5 * time.Second
 	nodeClientIpSyncTimeout       = 6 * time.Second
 	nodeGlobalPushInterval        = 30 * time.Second
 	// nodeInboundSpeedWindowMs is the sampling window the broadcast speed

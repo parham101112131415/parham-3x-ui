@@ -300,21 +300,25 @@ func (s *Server) initRouter() (*gin.Engine, error) {
 // node/xray state is unchanged, and export per-job duration/skipped/error
 // counters.
 const (
-	cadenceXrayRunning   = "@every 1s"
-	cadenceXrayRestart   = "@every 30s"
-	cadenceXrayTraffic   = "@every 1s"
-	cadenceMtproto       = "@every 10s"
-	cadenceAmneziaWG     = "@every 10s"
-	cadenceTuic          = "@every 10s"
-	cadenceClientIPScan  = "@every 10s"
-	cadenceSiteLog       = "@every 30s"
-	cadenceNodeHeartbeat = "@every 5s"
-	cadenceNodeTraffic   = "@every 1s"
-	cadenceOutboundSub   = "@every 5m"
-	cadenceReapOrphans   = "@every 5m"
-	cadenceRemoteRouting = "@every 5m"
-	cadenceXrayLogPrune  = "@every 10m"
-	cadenceCheckHash     = "@every 2m"
+	cadenceXrayRunning  = "@every 1s"
+	cadenceXrayRestart  = "@every 30s"
+	cadenceXrayTraffic  = "@every 1s"
+	cadenceMtproto      = "@every 10s"
+	cadenceAmneziaWG    = "@every 10s"
+	cadenceTuic         = "@every 10s"
+	cadenceClientIPScan = "@every 10s"
+	cadenceSiteLog      = "@every 10s"
+	// The adult-site watcher scans the (tiny) merged site table; a 5s
+	// pass keeps its Telegram alerts effectively instant — a visit is
+	// reported within seconds of being recorded.
+	cadenceAdultSiteWatch = "@every 5s"
+	cadenceNodeHeartbeat  = "@every 5s"
+	cadenceNodeTraffic    = "@every 1s"
+	cadenceOutboundSub    = "@every 5m"
+	cadenceReapOrphans    = "@every 5m"
+	cadenceRemoteRouting  = "@every 5m"
+	cadenceXrayLogPrune   = "@every 10m"
+	cadenceCheckHash      = "@every 2m"
 	// cpu.Percent samples over a full minute (blocking), so a finer cadence just
 	// stacks overlapping samplers; subscribers rate-limit alerts to 1/min anyway.
 	cadenceCPUAlarm    = "@every 1m"
@@ -384,7 +388,7 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	_, _ = s.cron.AddJob("@hourly", job.NewWarpIpJob())
 	_, _ = s.cron.AddJob("@hourly", job.NewGithubBackupJob())
 	_, _ = s.cron.AddJob("@every 1m", job.NewShareWatchJob())
-	_, _ = s.cron.AddJob("@every 1m", job.NewAdultSiteWatchJob())
+	_, _ = s.cron.AddJob(cadenceAdultSiteWatch, job.NewAdultSiteWatchJob())
 
 	// Inbound traffic reset jobs
 	// Run every hour
