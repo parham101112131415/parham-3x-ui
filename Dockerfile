@@ -59,6 +59,20 @@ RUN mkdir -p /usr/local/share/geoip \
     "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-City.mmdb" \
   && test "$(stat -c%s /usr/local/share/geoip/GeoLite2-City.mmdb)" -gt 10000000
 ENV PARHAM_GEOLITE2_CITY_DB="/usr/local/share/geoip/GeoLite2-City.mmdb"
+# Adult-site domain list for the visited-sites 🔞 labels and the Telegram
+# adult-site watcher: merged at build time from three maintained public
+# blocklists (BlocklistProject porn, oisd nsfw, Steven Black porn-only)
+# and normalized to one bare domain per line. A source being down only
+# shrinks the merge; the build fails only if the union is implausibly
+# small (< 500k domains).
+RUN mkdir -p /usr/local/share/parham /tmp/adultlists \
+  && (curl -sfL -o /tmp/adultlists/blp.txt "https://raw.githubusercontent.com/blocklistproject/Lists/master/porn.txt" || true) \
+  && (curl -sfL -o /tmp/adultlists/sb.txt "https://raw.githubusercontent.com/StevenBlack/hosts/master/alternates/porn-only/hosts" || true) \
+  && (curl -sfL -o /tmp/adultlists/oisd.txt "https://nsfw.oisd.nl/domainswild" || true) \
+  && cat /tmp/adultlists/*.txt | awk '{ gsub(/\r/, ""); if ($0 == "" || $0 ~ /^#/ || $0 ~ /^!/) next; f = $1; if (f == "0.0.0.0" || f == "127.0.0.1" || f == "::1") f = $2; sub(/^\*\./, "", f); f = tolower(f); sub(/\.$/, "", f); if (f ~ /^[a-z0-9.-]+$/ && f ~ /\./ && f !~ /^\./ && f !~ /\.\./) print f }' | sort -u > /usr/local/share/parham/adult_domains.txt \
+  && test "$(wc -l < /usr/local/share/parham/adult_domains.txt)" -gt 500000 \
+  && rm -rf /tmp/adultlists
+ENV PARHAM_ADULT_SITES_FILE="/usr/local/share/parham/adult_domains.txt"
 
 COPY nginx/default.conf /etc/nginx/http.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf

@@ -107,6 +107,11 @@ func classifySiteHost(host string) string {
 			}
 		}
 	}
+	if best == "" {
+		if _, ok := AdultSiteIdentity(host); ok {
+			return "🔞 Adult"
+		}
+	}
 	return best
 }
 
