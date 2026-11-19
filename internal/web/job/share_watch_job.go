@@ -40,6 +40,24 @@ func (j *ShareWatchJob) Run() {
 	if !j.tgbotService.IsRunning() {
 		return
 	}
+	// Sharing alerts are opt-in through the Telegram enabled-events list:
+	// they fire only while "share.watch" is present in tgEnabledEvents.
+	// The operator turned them off on 2026-11-19 (alert flapping from IPs
+	// drifting in and out of the live window re-armed the alert repeatedly).
+	events, err := (&service.SettingService{}).GetTgEnabledEvents()
+	if err != nil {
+		return
+	}
+	shareEnabled := false
+	for e := range strings.SplitSeq(events, ",") {
+		if strings.TrimSpace(e) == "share.watch" {
+			shareEnabled = true
+			break
+		}
+	}
+	if !shareEnabled {
+		return
+	}
 	db := database.GetDB()
 	var nodeCount int64
 	if err := db.Model(&model.Node{}).Count(&nodeCount).Error; err != nil || nodeCount == 0 {
