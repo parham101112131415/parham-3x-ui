@@ -426,6 +426,30 @@ func (s *InboundService) GetNodeInboundTrafficTotals() (map[string][2]int64, err
 	return out, nil
 }
 
+// GetNodeClientTrafficTotals returns each client's cumulative up/down summed
+// across every node, from the merged node_client_traffics rows. The node
+// traffic sync job diffs successive reads to derive a per-client live speed —
+// clients connected through a node have no local Xray poll on the master, so
+// without this their rows never show a speed.
+func (s *InboundService) GetNodeClientTrafficTotals() (map[string][2]int64, error) {
+	var rows []struct {
+		Email string
+		Up    int64
+		Down  int64
+	}
+	if err := database.GetDB().Table("node_client_traffics").
+		Select("email, SUM(up) AS up, SUM(down) AS down").
+		Group("email").
+		Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string][2]int64, len(rows))
+	for _, r := range rows {
+		out[r.Email] = [2]int64{r.Up, r.Down}
+	}
+	return out, nil
+}
+
 func adoptedWireChanged(c, snapIb *model.Inbound, adoptedSettings string) bool {
 	return c.Settings != adoptedSettings ||
 		c.Enable != snapIb.Enable ||

@@ -57,6 +57,11 @@ type NodeTrafficSyncJob struct {
 	// a per-inbound speed delta — node inbounds have no local Xray poll. Touched
 	// only from Run (serialized).
 	prevInboundTotals map[string]inboundSample
+	// prevClientTotals is the same baseline keyed by client email (summed across
+	// all nodes), used to derive a per-client speed delta for the clients page —
+	// node clients otherwise show as online with no live speed. Touched only
+	// from Run (serialized).
+	prevClientTotals map[string]inboundSample
 }
 
 type atomicBool struct {
@@ -162,6 +167,9 @@ func (j *NodeTrafficSyncJob) Run() {
 	// Derive per-node-inbound speed every tick (keeps the baseline fresh even
 	// with no dashboard open); only broadcast it when someone is watching.
 	inboundSpeed := j.nodeInboundSpeed()
+	// Same for per-client speed: node clients have no local Xray poll, so this
+	// delta feed is the only source of their live speed on the clients page.
+	clientSpeed := j.nodeClientSpeed()
 
 	if !websocket.HasClients() {
 		return
@@ -221,6 +229,13 @@ func (j *NodeTrafficSyncJob) Run() {
 	// client-side, leaving the last shown value untouched; an empty (non-nil)
 	// slice marshals to [] and clears stale speeds.
 	trafficPayload["nodeTraffics"] = inboundSpeed
+	// Always send the client-speed keys too (an empty slice included) so the
+	// clients page clears node-client speeds that went idle this tick. A nil
+	// result (query error) marshals to null and is skipped client-side,
+	// leaving the last shown value untouched.
+	trafficPayload["clientTraffics"] = clientSpeed
+	trafficPayload["clientTrafficSource"] = "node"
+	trafficPayload["clientTrafficIntervalMs"] = nodeInboundSpeedWindowMs
 	websocket.BroadcastTraffic(trafficPayload)
 
 	clientStats := map[string]any{"snapshot": snapshot}
@@ -295,6 +310,55 @@ func (j *NodeTrafficSyncJob) nodeInboundSpeed() []*xray.Traffic {
 		next[tag] = inboundSample{up: cur[0], down: cur[1], at: now}
 	}
 	j.prevInboundTotals = next
+	return deltas
+}
+
+// nodeClientSpeed derives per-client speed deltas (normalized to the fixed
+// poll window, like nodeInboundSpeed) from the merged per-node client totals.
+// The result is broadcast under its own clientTrafficSource so the clients
+// page can add it to the local Xray speeds instead of replacing them.
+func (j *NodeTrafficSyncJob) nodeClientSpeed() []*xray.ClientTraffic {
+	totals, err := j.inboundService.GetNodeClientTrafficTotals()
+	if err != nil {
+		return nil
+	}
+	now := time.Now().UnixMilli()
+	deltas := make([]*xray.ClientTraffic, 0, len(totals))
+	next := make(map[string]inboundSample, len(totals))
+	for email, cur := range totals {
+		prev, ok := j.prevClientTotals[email]
+		if !ok {
+			next[email] = inboundSample{up: cur[0], down: cur[1], at: now}
+			continue
+		}
+		dUp := cur[0] - prev.up
+		dDown := cur[1] - prev.down
+		if dUp <= 0 && dDown <= 0 {
+			// No movement, or a counter reset: hold the change timestamp so a
+			// later jump is averaged over the real elapsed window, not shown as
+			// a spike. Adopt the lower value on a reset.
+			if cur[0] < prev.up || cur[1] < prev.down {
+				next[email] = inboundSample{up: cur[0], down: cur[1], at: now}
+			} else {
+				next[email] = prev
+			}
+			continue
+		}
+		if dUp < 0 {
+			dUp = 0
+		}
+		if dDown < 0 {
+			dDown = 0
+		}
+		elapsed := max(now-prev.at, nodeInboundSpeedWindowMs)
+		up := dUp * nodeInboundSpeedWindowMs / elapsed
+		down := dDown * nodeInboundSpeedWindowMs / elapsed
+		if up > 0 || down > 0 {
+			deltas = append(deltas, &xray.ClientTraffic{Email: email, Up: up, Down: down})
+		}
+		next[email] = inboundSample{up: cur[0], down: cur[1], at: now}
+	}
+	j.prevClientTotals = next
 	return deltas
 }
 
