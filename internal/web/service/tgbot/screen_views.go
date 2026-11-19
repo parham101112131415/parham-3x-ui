@@ -71,11 +71,21 @@ func (t *Tgbot) homeSummary() string {
 	}
 	clients := 0
 	online := 0
-	traffic := int64(0)
+	var trafficUp, trafficDown int64
+	// A client attached to several inbounds (one per location) is still ONE
+	// client: count distinct emails, not per-inbound entries.
+	seenClients := map[string]bool{}
 	for _, ib := range inbounds {
-		clients += len(ib.ClientStats)
-		traffic += ib.Up + ib.Down
+		for _, cs := range ib.ClientStats {
+			if !seenClients[cs.Email] {
+				seenClients[cs.Email] = true
+				clients++
+			}
+		}
+		trafficUp += ib.Up
+		trafficDown += ib.Down
 	}
+	traffic := trafficUp + trafficDown
 	if process := xrayProcessOrNil(); process != nil {
 		online = len(process.GetOnlineClients())
 	}
@@ -86,7 +96,7 @@ func (t *Tgbot) homeSummary() string {
 	body += t.I18nBot("tgbot.messages.clientsCount", "Count=="+strconv.Itoa(clients))
 	body += t.I18nBot("tgbot.messages.onlinesCount", "Count=="+strconv.Itoa(online))
 	body += t.I18nBot("tgbot.messages.traffic", "Total=="+common.FormatTraffic(traffic),
-		"Upload=="+common.FormatTraffic(traffic), "Download=="+common.FormatTraffic(0))
+		"Upload=="+common.FormatTraffic(trafficUp), "Download=="+common.FormatTraffic(trafficDown))
 	return body
 }
 
