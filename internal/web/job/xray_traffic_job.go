@@ -20,6 +20,14 @@ type XrayTrafficJob struct {
 	inboundService  service.InboundService
 	outboundService outbound.OutboundService
 	speedLimiter    *speedLimiter
+	// clientCum / inboundCum fold each poll's raw deltas into running
+	// cumulative counters, and clientSpeeds / inboundSpeeds turn those into
+	// the stable windowed rates the dashboard shows (see speed_window.go).
+	// The raw deltas themselves swing too much poll-to-poll to display.
+	clientCum     map[string][2]int64
+	inboundCum    map[string][2]int64
+	clientSpeeds  *speedTracker
+	inboundSpeeds *speedTracker
 }
 
 // clientStatsSnapshotMaxClients caps how many client_traffics rows the job
@@ -155,6 +163,69 @@ func (j *XrayTrafficJob) Run() {
 	}
 	j.inboundService.RefreshLocalOnlineClients(activeEmails, activeInboundTags)
 
+	// Fold this poll's deltas into the cumulative counters and derive the
+	// windowed rates for the broadcast below. Done even with no dashboard
+	// open so the trailing window is already warm when one connects.
+	if j.clientCum == nil {
+		j.clientCum = make(map[string][2]int64)
+		j.inboundCum = make(map[string][2]int64)
+		j.clientSpeeds = newSpeedTracker()
+		j.inboundSpeeds = newSpeedTracker()
+	}
+	nowMs := time.Now().UnixMilli()
+	clientKeep := make(map[string]bool, len(clientTraffics))
+	for _, ct := range clientTraffics {
+		if ct == nil || ct.Email == "" {
+			continue
+		}
+		clientKeep[ct.Email] = true
+		c := j.clientCum[ct.Email]
+		c[0] += ct.Up
+		c[1] += ct.Down
+		j.clientCum[ct.Email] = c
+	}
+	clientSpeedRows := make([]*xray.ClientTraffic, 0, len(movedTraffics))
+	for email, cum := range j.clientCum {
+		if up, down, ok := j.clientSpeeds.rate(email, nowMs, cum[0], cum[1]); ok {
+			clientSpeedRows = append(clientSpeedRows, &xray.ClientTraffic{Email: email, Up: up, Down: down})
+		}
+	}
+	j.clientSpeeds.forgetExcept(clientKeep)
+	for email := range j.clientCum {
+		if !clientKeep[email] {
+			delete(j.clientCum, email)
+		}
+	}
+	inboundKeep := make(map[string]bool, len(traffics))
+	speedTraffics := make([]*xray.Traffic, 0, len(traffics))
+	for _, tr := range traffics {
+		if tr == nil {
+			continue
+		}
+		if !tr.IsInbound {
+			speedTraffics = append(speedTraffics, tr)
+			continue
+		}
+		inboundKeep[tr.Tag] = true
+		c := j.inboundCum[tr.Tag]
+		c[0] += tr.Up
+		c[1] += tr.Down
+		j.inboundCum[tr.Tag] = c
+		row := *tr
+		if up, down, ok := j.inboundSpeeds.rate(tr.Tag, nowMs, c[0], c[1]); ok {
+			row.Up, row.Down = up, down
+		} else {
+			row.Up, row.Down = 0, 0
+		}
+		speedTraffics = append(speedTraffics, &row)
+	}
+	j.inboundSpeeds.forgetExcept(inboundKeep)
+	for tag := range j.inboundCum {
+		if !inboundKeep[tag] {
+			delete(j.inboundCum, tag)
+		}
+	}
+
 	if !websocket.HasClients() {
 		return
 	}
@@ -203,12 +274,13 @@ func (j *XrayTrafficJob) Run() {
 		onlineClients = []string{}
 	}
 	websocket.BroadcastTraffic(map[string]any{
-		"traffics":       traffics,
-		"clientTraffics": movedTraffics,
-		"onlineClients":  onlineClients,
-		"onlineByGuid":   j.inboundService.GetOnlineClientsByGuid(),
-		"activeInbounds": j.inboundService.GetActiveInboundsByGuid(),
-		"lastOnlineMap":  lastOnlineMap,
+		"traffics":                speedTraffics,
+		"clientTraffics":          clientSpeedRows,
+		"clientTrafficIntervalMs": nodeInboundSpeedWindowMs,
+		"onlineClients":           onlineClients,
+		"onlineByGuid":            j.inboundService.GetOnlineClientsByGuid(),
+		"activeInbounds":          j.inboundService.GetActiveInboundsByGuid(),
+		"lastOnlineMap":           lastOnlineMap,
 	})
 
 	clientStatsPayload := map[string]any{"snapshot": snapshot}

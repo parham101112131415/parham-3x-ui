@@ -186,10 +186,18 @@ describe('client summary always reflects the server, never a client_stats recomp
       });
       expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 250, down: 400 });
 
+      // A source expires only after 4x its sample interval without a fresh
+      // frame, so a merely late frame (a slow 1s poll can take ~2.5s) does
+      // not blank the speed: at 2s both sources are still alive.
+      act(() => vi.advanceTimersByTime(2_000));
+      expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 250, down: 400 });
+
+      // At 4s the xray source (1s interval) expires; tuic (2s interval)
+      // survives until 8s.
       act(() => vi.advanceTimersByTime(2_000));
       expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 150, down: 200 });
 
-      act(() => vi.advanceTimersByTime(2_000));
+      act(() => vi.advanceTimersByTime(4_000));
       expect(result.current.clientSpeed).toEqual({});
     } finally {
       vi.useRealTimers();

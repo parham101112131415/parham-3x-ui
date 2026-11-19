@@ -46,9 +46,9 @@ func TestNodeClientSpeed_DeltaSumsAcrossNodes(t *testing.T) {
 	j := &NodeTrafficSyncJob{inboundService: service.InboundService{}}
 	_ = j.nodeClientSpeed() // baseline
 
-	// alice moves on both nodes; bob stays idle. Calls are back-to-back, so
-	// the elapsed window clamps to the 5s poll window and the normalized
-	// delta equals the raw byte delta.
+	// alice moves on both nodes; bob stays idle. The windowed rate's exact
+	// value depends on the real elapsed milliseconds between the back-to-back
+	// calls, so assert the shape: exactly one row, alice, positive both ways.
 	setNodeClientTotal(t, 1, "alice", 3000, 6000)
 	setNodeClientTotal(t, 2, "alice", 1500, 1700)
 
@@ -56,13 +56,15 @@ func TestNodeClientSpeed_DeltaSumsAcrossNodes(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected exactly one moving client, got %v", got)
 	}
-	if got[0].Email != "alice" || got[0].Up != 3000 || got[0].Down != 5000 {
-		t.Fatalf("unexpected delta: %+v", got[0])
+	if got[0].Email != "alice" || got[0].Up <= 0 || got[0].Down <= 0 {
+		t.Fatalf("unexpected rate row: %+v", got[0])
 	}
 
-	// No movement on the next tick → no rows.
-	if got := j.nodeClientSpeed(); len(got) != 0 {
-		t.Fatalf("idle tick must produce no deltas, got %v", got)
+	// No movement on the next tick: alice's movement is still inside the
+	// trailing window, so her (decaying) rate is still reported — that is
+	// the smoothing working, not a stale pin.
+	if got := j.nodeClientSpeed(); len(got) != 1 || got[0].Email != "alice" {
+		t.Fatalf("windowed rate must persist across an idle tick, got %v", got)
 	}
 }
 
@@ -73,17 +75,17 @@ func TestNodeClientSpeed_CounterResetAdoptsLowerBaseline(t *testing.T) {
 	j := &NodeTrafficSyncJob{inboundService: service.InboundService{}}
 	_ = j.nodeClientSpeed() // baseline
 
-	// Counter reset (e.g. traffic reset on the node): no spike, baseline
-	// adopts the lower value.
+	// Counter reset (e.g. traffic reset on the node): no spike, the series
+	// rebases on the lower value.
 	setNodeClientTotal(t, 1, "alice", 100, 100)
 	if got := j.nodeClientSpeed(); len(got) != 0 {
-		t.Fatalf("reset tick must produce no deltas, got %v", got)
+		t.Fatalf("reset tick must produce no rates, got %v", got)
 	}
 
 	setNodeClientTotal(t, 1, "alice", 600, 1100)
 	got := j.nodeClientSpeed()
-	if len(got) != 1 || got[0].Up != 500 || got[0].Down != 1000 {
-		t.Fatalf("delta after reset must be measured from the new baseline, got %v", got)
+	if len(got) != 1 || got[0].Email != "alice" || got[0].Up <= 0 || got[0].Down <= 0 {
+		t.Fatalf("rate after reset must be measured from the new baseline, got %v", got)
 	}
 }
 

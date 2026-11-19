@@ -134,54 +134,109 @@ type ClientLocationUsage struct {
 }
 
 // GetClientUsageByLocation splits a client's total traffic by the location
-// it was used on: this panel's own client_traffics row first, then one row
-// per node from node_client_traffics (the per-node figures the master keeps
-// for its aggregate), labelled with the node names.
+// it was used on: one row per node from node_client_traffics (the per-node
+// figures the master keeps), plus this panel's own row.
+//
+// The central client_traffics row is NOT the local figure — node sync folds
+// every node's deltas into it, so it holds the client's cross-location
+// total, and its inbound_id points at whichever inbound last touched it.
+// Labelling that row with that inbound's remark (the old behaviour) showed
+// the total under a random node's name, duplicating that node and hiding
+// the local location entirely. The local figure is what remains of the
+// total after the per-node rows are subtracted.
 func (s *InboundService) GetClientUsageByLocation(email string) ([]ClientLocationUsage, error) {
 	db := database.GetDB()
-	out := make([]ClientLocationUsage, 0, 4)
-
-	var local xray.ClientTraffic
-	err := db.Where("email = ?", email).First(&local).Error
-	switch {
-	case err == nil:
-		name := ""
-		if local.InboundId > 0 {
-			var ib model.Inbound
-			if e := db.Select("remark").Where("id = ?", local.InboundId).First(&ib).Error; e == nil {
-				name = ib.Remark
-			}
-		}
-		out = append(out, ClientLocationUsage{Node: name, Up: local.Up, Down: local.Down})
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		// No local usage recorded; node rows may still exist.
-	default:
-		return nil, err
-	}
 
 	var rows []model.NodeClientTraffic
 	if err := db.Where("email = ?", email).Find(&rows).Error; err != nil {
 		return nil, err
 	}
+	nameById := make(map[int]string, len(rows))
+	var nodeUp, nodeDown int64
 	if len(rows) > 0 {
 		ids := make([]int, 0, len(rows))
 		for _, r := range rows {
 			ids = append(ids, r.NodeId)
+			nodeUp += r.Up
+			nodeDown += r.Down
 		}
 		var nodes []model.Node
 		if err := db.Where("id IN ?", ids).Find(&nodes).Error; err != nil {
 			return nil, err
 		}
-		nameById := make(map[int]string, len(nodes))
 		for _, n := range nodes {
 			nameById[n.Id] = n.Name
 		}
-		sort.Slice(rows, func(i, j int) bool {
-			return nameById[rows[i].NodeId] < nameById[rows[j].NodeId]
-		})
-		for _, r := range rows {
-			out = append(out, ClientLocationUsage{Node: nameById[r.NodeId], Up: r.Up, Down: r.Down})
+	}
+
+	out := make([]ClientLocationUsage, 0, len(rows)+1)
+
+	var total xray.ClientTraffic
+	err := db.Where("email = ?", email).First(&total).Error
+	switch {
+	case err == nil:
+		localUp := total.Up - nodeUp
+		if localUp < 0 {
+			localUp = 0
 		}
+		localDown := total.Down - nodeDown
+		if localDown < 0 {
+			localDown = 0
+		}
+		out = append(out, ClientLocationUsage{
+			Node: s.localUsageLabel(db, email, total.InboundId),
+			Up:   localUp,
+			Down: localDown,
+		})
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		// No central row; node rows may still exist.
+	default:
+		return nil, err
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		return nameById[rows[i].NodeId] < nameById[rows[j].NodeId]
+	})
+	for _, r := range rows {
+		out = append(out, ClientLocationUsage{Node: nameById[r.NodeId], Up: r.Up, Down: r.Down})
 	}
 	return out, nil
+}
+
+// localUsageLabel names the local row of GetClientUsageByLocation: the
+// remark of a local inbound (node_id NULL) the client is attached to,
+// falling back to the central row's inbound when that one is local. ""
+// when no local inbound can be resolved.
+func (s *InboundService) localUsageLabel(db *gorm.DB, email string, centralInboundId int) string {
+	var attached []int
+	if err := db.Table("client_inbounds").
+		Select("client_inbounds.inbound_id").
+		Joins("JOIN clients ON clients.id = client_inbounds.client_id").
+		Where("clients.email = ?", email).
+		Scan(&attached).Error; err == nil {
+		sort.Ints(attached)
+		for _, id := range attached {
+			if remark, ok := localInboundRemark(db, id); ok {
+				return remark
+			}
+		}
+	}
+	if remark, ok := localInboundRemark(db, centralInboundId); ok {
+		return remark
+	}
+	return ""
+}
+
+func localInboundRemark(db *gorm.DB, inboundId int) (string, bool) {
+	if inboundId <= 0 {
+		return "", false
+	}
+	var ib model.Inbound
+	if err := db.Select("remark", "node_id").Where("id = ?", inboundId).First(&ib).Error; err != nil {
+		return "", false
+	}
+	if ib.NodeID != nil {
+		return "", false
+	}
+	return ib.Remark, true
 }

@@ -24,17 +24,13 @@ const (
 	nodeClientIpSyncInterval      = 10 * time.Second
 	nodeClientIpSyncTimeout       = 6 * time.Second
 	nodeGlobalPushInterval        = 30 * time.Second
-	// nodeInboundSpeedWindowMs is the poll window node-inbound speed deltas are
-	// normalized to; it MUST match the dashboard's TRAFFIC_POLL_INTERVAL_S (1s),
-	// the fixed divisor the frontend applies to turn a delta into a rate.
+	// nodeInboundSpeedWindowMs is the sampling window the broadcast speed
+	// values are expressed in: the payload carries bytes-per-window rates and
+	// the dashboard divides by TRAFFIC_POLL_INTERVAL_S (1s), so the window
+	// must stay 1000ms. The rates themselves are averaged over the longer
+	// speedWindowMs trailing window (see speed_window.go).
 	nodeInboundSpeedWindowMs int64 = 1000
 )
-
-// inboundSample is a node inbound's last-seen cumulative up/down and the time
-// (unix millis) its counter last changed, used to derive a normalized speed.
-type inboundSample struct {
-	up, down, at int64
-}
 
 type NodeTrafficSyncJob struct {
 	nodeService    service.NodeService
@@ -52,16 +48,14 @@ type NodeTrafficSyncJob struct {
 	noGuidIpEndpoint sync.Map
 	// noSiteEndpoint is the same once-note for the visited-sites endpoint.
 	noSiteEndpoint sync.Map
-	// prevInboundTotals holds the previous poll's cumulative up/down (and the time
-	// the counter last changed) per node inbound tag, so the next poll can derive
-	// a per-inbound speed delta — node inbounds have no local Xray poll. Touched
-	// only from Run (serialized).
-	prevInboundTotals map[string]inboundSample
-	// prevClientTotals is the same baseline keyed by client email (summed across
-	// all nodes), used to derive a per-client speed delta for the clients page —
-	// node clients otherwise show as online with no live speed. Touched only
+	// inboundSpeeds derives a stable per-inbound rate from the cumulative
+	// per-tag totals (node inbounds have no local Xray poll). Touched only
 	// from Run (serialized).
-	prevClientTotals map[string]inboundSample
+	inboundSpeeds *speedTracker
+	// clientSpeeds is the same tracker keyed by client email (totals summed
+	// across all nodes), feeding the clients page — node clients otherwise
+	// show as online with no live speed. Touched only from Run (serialized).
+	clientSpeeds *speedTracker
 }
 
 type atomicBool struct {
@@ -257,109 +251,58 @@ func (j *NodeTrafficSyncJob) Run() {
 	}
 }
 
-// nodeInboundSpeed derives a per-node-inbound speed delta by diffing the current
-// cumulative up/down against the previous poll's, keyed by the central tag the
-// dashboard matches. The node's counter keeps climbing while the master can't
-// reach it, so the first delta after a gap (node outage, skipped poll, slow
-// node) spans more than one poll window; it is normalized to the fixed
-// nodeInboundSpeedWindowMs using the real elapsed time so the dashboard's fixed
-// divisor yields the true average rate over the gap instead of an impossible
-// one-tick spike. The change timestamp only advances when the value actually
-// moves, so an idle stretch is averaged correctly when traffic resumes. A reset
-// rebaselines to the lower value; a first-seen tag yields no delta until the
-// next poll.
+// nodeInboundSpeed derives a stable per-node-inbound rate from the merged
+// cumulative totals, keyed by the central tag the dashboard matches. The
+// totals reach the master in uneven chunks (each node's own poll cadence,
+// fetch latency, skipped ticks), so a single poll's diff is meaningless as
+// a rate; the speedTracker averages the counters over the trailing
+// speedWindowMs instead, which reads steady for a steady flow. A first-seen
+// tag only seeds its series; a reset rebases it.
 func (j *NodeTrafficSyncJob) nodeInboundSpeed() []*xray.Traffic {
 	totals, err := j.inboundService.GetNodeInboundTrafficTotals()
 	if err != nil {
 		return nil
 	}
-	now := time.Now().UnixMilli()
-	deltas := make([]*xray.Traffic, 0, len(totals))
-	next := make(map[string]inboundSample, len(totals))
-	for tag, cur := range totals {
-		prev, ok := j.prevInboundTotals[tag]
-		if !ok {
-			next[tag] = inboundSample{up: cur[0], down: cur[1], at: now}
-			continue
-		}
-		dUp := cur[0] - prev.up
-		dDown := cur[1] - prev.down
-		if dUp <= 0 && dDown <= 0 {
-			// No movement, or a counter reset: hold the change timestamp so a
-			// later jump is averaged over the real elapsed window, not shown as a
-			// spike. Adopt the lower value on a reset.
-			if cur[0] < prev.up || cur[1] < prev.down {
-				next[tag] = inboundSample{up: cur[0], down: cur[1], at: now}
-			} else {
-				next[tag] = prev
-			}
-			continue
-		}
-		if dUp < 0 {
-			dUp = 0
-		}
-		if dDown < 0 {
-			dDown = 0
-		}
-		elapsed := max(now-prev.at, nodeInboundSpeedWindowMs)
-		up := dUp * nodeInboundSpeedWindowMs / elapsed
-		down := dDown * nodeInboundSpeedWindowMs / elapsed
-		if up > 0 || down > 0 {
-			deltas = append(deltas, &xray.Traffic{Tag: tag, IsInbound: true, Up: up, Down: down})
-		}
-		next[tag] = inboundSample{up: cur[0], down: cur[1], at: now}
+	if j.inboundSpeeds == nil {
+		j.inboundSpeeds = newSpeedTracker()
 	}
-	j.prevInboundTotals = next
-	return deltas
+	now := time.Now().UnixMilli()
+	rates := make([]*xray.Traffic, 0, len(totals))
+	keep := make(map[string]bool, len(totals))
+	for tag, cur := range totals {
+		keep[tag] = true
+		if up, down, ok := j.inboundSpeeds.rate(tag, now, cur[0], cur[1]); ok {
+			rates = append(rates, &xray.Traffic{Tag: tag, IsInbound: true, Up: up, Down: down})
+		}
+	}
+	j.inboundSpeeds.forgetExcept(keep)
+	return rates
 }
 
-// nodeClientSpeed derives per-client speed deltas (normalized to the fixed
-// poll window, like nodeInboundSpeed) from the merged per-node client totals.
-// The result is broadcast under its own clientTrafficSource so the clients
-// page can add it to the local Xray speeds instead of replacing them.
+// nodeClientSpeed derives stable per-client rates (averaged over the
+// trailing window, like nodeInboundSpeed) from the merged per-node client
+// totals. The result is broadcast under its own clientTrafficSource so the
+// clients page can add it to the local Xray speeds instead of replacing
+// them.
 func (j *NodeTrafficSyncJob) nodeClientSpeed() []*xray.ClientTraffic {
 	totals, err := j.inboundService.GetNodeClientTrafficTotals()
 	if err != nil {
 		return nil
 	}
-	now := time.Now().UnixMilli()
-	deltas := make([]*xray.ClientTraffic, 0, len(totals))
-	next := make(map[string]inboundSample, len(totals))
-	for email, cur := range totals {
-		prev, ok := j.prevClientTotals[email]
-		if !ok {
-			next[email] = inboundSample{up: cur[0], down: cur[1], at: now}
-			continue
-		}
-		dUp := cur[0] - prev.up
-		dDown := cur[1] - prev.down
-		if dUp <= 0 && dDown <= 0 {
-			// No movement, or a counter reset: hold the change timestamp so a
-			// later jump is averaged over the real elapsed window, not shown as
-			// a spike. Adopt the lower value on a reset.
-			if cur[0] < prev.up || cur[1] < prev.down {
-				next[email] = inboundSample{up: cur[0], down: cur[1], at: now}
-			} else {
-				next[email] = prev
-			}
-			continue
-		}
-		if dUp < 0 {
-			dUp = 0
-		}
-		if dDown < 0 {
-			dDown = 0
-		}
-		elapsed := max(now-prev.at, nodeInboundSpeedWindowMs)
-		up := dUp * nodeInboundSpeedWindowMs / elapsed
-		down := dDown * nodeInboundSpeedWindowMs / elapsed
-		if up > 0 || down > 0 {
-			deltas = append(deltas, &xray.ClientTraffic{Email: email, Up: up, Down: down})
-		}
-		next[email] = inboundSample{up: cur[0], down: cur[1], at: now}
+	if j.clientSpeeds == nil {
+		j.clientSpeeds = newSpeedTracker()
 	}
-	j.prevClientTotals = next
-	return deltas
+	now := time.Now().UnixMilli()
+	rates := make([]*xray.ClientTraffic, 0, len(totals))
+	keep := make(map[string]bool, len(totals))
+	for email, cur := range totals {
+		keep[email] = true
+		if up, down, ok := j.clientSpeeds.rate(email, now, cur[0], cur[1]); ok {
+			rates = append(rates, &xray.ClientTraffic{Email: email, Up: up, Down: down})
+		}
+	}
+	j.clientSpeeds.forgetExcept(keep)
+	return rates
 }
 
 // maybePushGlobals broadcasts this panel's aggregated per-client usage to its

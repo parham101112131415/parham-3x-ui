@@ -848,7 +848,10 @@ export function useClients(options: UseClientsOptions = {}) {
               return nextSources;
             });
           },
-          Math.min(sampleIntervalMs * 2, 120_000),
+          // Server frames nominally land every sample interval, but a slow
+          // poll can stretch that to ~2.5x; expiring at 2x blanked the speed
+          // between late frames even though the client never stopped.
+          Math.min(sampleIntervalMs * 4, 120_000),
         );
       }
     },
