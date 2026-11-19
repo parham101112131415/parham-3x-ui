@@ -55,3 +55,19 @@ func TestClassifySiteHostAdultLabel(t *testing.T) {
 		t.Errorf("classifySiteHost(graph.instagram.com) = %q, want Instagram", got)
 	}
 }
+
+func TestAdultSiteIdentity_ExcludedDomainsWinOverList(t *testing.T) {
+	// mob.com sits in the baked list (a BlocklistProject false
+	// positive) but is an app-SDK domain: the exclusion must win for
+	// the domain itself and every subdomain, while real listed adult
+	// domains keep matching.
+	SetAdultDomainsForTest([]string{"mob.com", "xvideos.com"})
+	for _, host := range []string{"mob.com", "api-share.mob.com", "a.b.mob.com"} {
+		if site, ok := AdultSiteIdentity(host); ok {
+			t.Errorf("AdultSiteIdentity(%q) = %q, true; excluded domain must not classify", host, site)
+		}
+	}
+	if _, ok := AdultSiteIdentity("www.xvideos.com"); !ok {
+		t.Error("www.xvideos.com must still classify as adult")
+	}
+}

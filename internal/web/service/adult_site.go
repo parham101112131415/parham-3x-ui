@@ -12,8 +12,12 @@ import (
 
 // adult_site.go decides whether a visited host is an adult (18+)
 // destination, for the visited-sites labels and the Telegram adult-site
-// watcher. Two nets, strongest first:
+// watcher. Three nets, strongest first:
 //
+//  0. An explicit exclusion set of known false positives (SDK and
+//     service domains an upstream list carries by mistake). An excluded
+//     domain and all its subdomains never classify, whatever the other
+//     nets say.
 //  1. A baked-in list of ~1.16M known adult domains (merged at image
 //     build time from the BlocklistProject porn list, the oisd nsfw list
 //     and Steven Black's porn-only list — see the Dockerfile). Matching
@@ -63,6 +67,32 @@ func SetAdultDomainsForTest(list []string) {
 	sorted := append([]string{}, list...)
 	sort.Strings(sorted)
 	adultDomainList.Store(&sorted)
+}
+
+// adultExcludedDomains are domains that must never classify as adult
+// even when an upstream list carries them: known false positives.
+// mob.com is MobTech's app-SDK domain — api-share.mob.com is the
+// ShareSDK endpoint apps ping on their own, with no user visiting
+// anything — but BlocklistProject's porn list carries the bare domain,
+// which made every such app ping look like an adult-site visit
+// (first false alert: sobhan, 2026-11-20). Matching is by suffix, the
+// same discipline as the list itself: an excluded domain clears itself
+// and every subdomain under it.
+var adultExcludedDomains = map[string]bool{
+	"mob.com": true,
+}
+
+func adultExcluded(host string) bool {
+	for candidate := host; ; {
+		if adultExcludedDomains[candidate] {
+			return true
+		}
+		i := strings.Index(candidate, ".")
+		if i < 0 {
+			return false
+		}
+		candidate = candidate[i+1:]
+	}
 }
 
 func adultListContains(domain string) bool {
@@ -131,6 +161,11 @@ func AdultSiteIdentity(host string) (string, bool) {
 		host = h
 	}
 	if net.ParseIP(host) != nil {
+		return "", false
+	}
+
+	// Net 0: explicit exclusions win over both other nets.
+	if adultExcluded(host) {
 		return "", false
 	}
 
