@@ -19,9 +19,11 @@ import {
   normalizeClientGps,
   normalizeClientIps,
   normalizeClientSites,
+  normalizeClientSubVisits,
   type ClientGpsInfo,
   type ClientIpInfo,
   type ClientSiteInfo,
+  type ClientSubVisitInfo,
 } from '@/lib/clients/ip-log';
 import { useDatepicker } from '@/hooks/useDatepicker';
 import { useClientHwids } from '@/hooks/useClientHwids';
@@ -140,6 +142,7 @@ export default function ClientInfoModal({
   const [usageRows, setUsageRows] = useState<ClientLocationUsage[]>([]);
   const [siteRows, setSiteRows] = useState<ClientSiteInfo[]>([]);
   const [gpsRows, setGpsRows] = useState<ClientGpsInfo[]>([]);
+  const [visitRows, setVisitRows] = useState<ClientSubVisitInfo[]>([]);
   const [ipsLoading, setIpsLoading] = useState(false);
   const [ipsClearing, setIpsClearing] = useState(false);
   const [ipsModalOpen, setIpsModalOpen] = useState(false);
@@ -211,12 +214,16 @@ export default function ClientInfoModal({
       const gpsMsg = (await HttpUtil.post(
         `/panel/api/clients/gps/${email}`,
       )) as ApiMsg<unknown[]>;
+      const visitsMsg = (await HttpUtil.post(
+        `/panel/api/clients/visits/${email}`,
+      )) as ApiMsg<unknown[]>;
       if (cancelled) return;
       setUsageRows(usageMsg?.success && Array.isArray(usageMsg.obj) ? usageMsg.obj : []);
       setIpHistory(histMsg?.success ? normalizeClientIps(histMsg.obj) : []);
       setClientIps(ipsMsg?.success ? normalizeClientIps(ipsMsg.obj) : []);
       setSiteRows(sitesMsg?.success ? normalizeClientSites(sitesMsg.obj) : []);
       setGpsRows(gpsMsg?.success ? normalizeClientGps(gpsMsg.obj) : []);
+      setVisitRows(visitsMsg?.success ? normalizeClientSubVisits(visitsMsg.obj) : []);
     })();
     return () => {
       cancelled = true;
@@ -605,6 +612,37 @@ export default function ClientInfoModal({
                     </td>
                   </tr>
                 )}
+                {visitRows.length > 0 && (
+                  <tr>
+                    <td>{t('pages.clients.subPageVisits')}</td>
+                    <td>
+                      <div style={{ maxHeight: 120, overflowY: 'auto' }}>
+                        {visitRows.map((visit, idx) => (
+                          <div key={idx} style={{ fontSize: 11, marginBottom: 3 }}>
+                            <Tag
+                              color={
+                                visit.outcome === 'denied'
+                                  ? 'red'
+                                  : visit.outcome === 'granted'
+                                    ? 'green'
+                                    : 'default'
+                              }
+                            >
+                              {visit.outcome === 'denied'
+                                ? t('pages.clients.visitDenied')
+                                : visit.outcome === 'granted'
+                                  ? t('pages.clients.visitGranted')
+                                  : t('pages.clients.visitOpened')}
+                            </Tag>
+                            {visit.device ? <span>{visit.device}</span> : null}
+                            {visit.ip ? <span className="hint"> — {visit.ip}</span> : null}
+                            {visit.time ? <span className="hint"> ({visit.time})</span> : null}
+                          </div>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                )}
                 {siteRows.length > 0 && (
                   <tr>
                     <td>{t('pages.clients.visitedSites')}</td>
@@ -615,6 +653,11 @@ export default function ClientInfoModal({
                             <span style={{ fontFamily: 'ui-monospace, Menlo, monospace' }}>
                               {site.host}
                             </span>{' '}
+                            {site.service ? (
+                              <Tag color="blue" style={{ marginInlineStart: 4 }}>
+                                {site.service}
+                              </Tag>
+                            ) : null}
                             <Tag style={{ marginInlineStart: 4 }}>
                               {site.count} {t('pages.clients.siteConnections')}
                             </Tag>

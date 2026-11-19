@@ -416,8 +416,12 @@ func replaceNodeClientSites(guid string, perEmail map[string][]model.ClientSiteE
 }
 
 // ClientSiteInfo is one row of the panel's per-client visited-sites list.
+// Service is the known-service label for the host (see site_service.go),
+// "" for generic hosts — the destination is all the log ever carries,
+// never which app on the device opened the connection.
 type ClientSiteInfo struct {
 	Host     string `json:"host"`
+	Service  string `json:"service"`
 	Count    int64  `json:"count"`
 	LastSeen string `json:"lastSeen"`
 }
@@ -466,7 +470,7 @@ func (s *InboundService) GetClientSitesWithNodes(email string) ([]ClientSiteInfo
 	}
 	out := make([]ClientSiteInfo, 0, len(merged))
 	for _, e := range merged {
-		info := ClientSiteInfo{Host: e.Host, Count: e.Count}
+		info := ClientSiteInfo{Host: e.Host, Service: classifySiteHost(e.Host), Count: e.Count}
 		if e.LastSeen > 0 {
 			info.LastSeen = time.Unix(e.LastSeen, 0).Local().Format("2006-01-02 15:04:05")
 		}

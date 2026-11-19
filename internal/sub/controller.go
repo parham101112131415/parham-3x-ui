@@ -350,6 +350,7 @@ func (a *SUBController) initRouter(g *gin.RouterGroup) {
 	gLoc.GET(":subid", a.locPage)
 	gLoc.HEAD(":subid", a.locPage)
 	gLoc.POST(":subid/report", a.locReport)
+	gLoc.POST(":subid/denied", a.locDenied)
 
 	gLink := g.Group(a.subPath, setNoCacheHeaders)
 	gLink.GET(":subid", a.subs)
@@ -416,6 +417,12 @@ func (a *SUBController) maybeServeSubPage(c *gin.Context) bool {
 	page, ok := a.buildSubPageData(c)
 	if !ok {
 		return true
+	}
+	// A browser just opened this subscription's info page: record the
+	// open (IP + device) in the client's visit log. Raw subscription
+	// fetches by client apps never reach this HTML path.
+	if c.Request.Method == http.MethodGet {
+		recordSubVisit(c, c.Param("subid"), "opened")
 	}
 	a.serveSubPage(c, page.BasePath, page)
 	return true

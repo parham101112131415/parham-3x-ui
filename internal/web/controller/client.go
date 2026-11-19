@@ -87,6 +87,7 @@ func (a *ClientController) initRouter(g *gin.RouterGroup) {
 	g.POST("/ipHistory/:email", a.getIpHistory)
 	g.POST("/sites/:email", a.getSites)
 	g.POST("/gps/:email", a.getGps)
+	g.POST("/visits/:email", a.getVisits)
 	g.POST("/usageByLocation/:email", a.getUsageByLocation)
 	g.POST("/clearIps/:email", a.clearIps)
 	g.POST("/hwids/:email", a.getHwids)
@@ -632,6 +633,11 @@ func (a *ClientController) getSites(c *gin.Context) {
 
 func (a *ClientController) getGps(c *gin.Context) {
 	infos, err := service.GetClientGpsReports(c.Param("email"))
+	jsonObj(c, infos, err)
+}
+
+func (a *ClientController) getVisits(c *gin.Context) {
+	infos, err := service.GetClientSubVisits(c.Param("email"))
 	jsonObj(c, infos, err)
 }
 

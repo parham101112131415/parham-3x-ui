@@ -54,6 +54,7 @@ export function geoMapsUrl(geo: IpGeoInfo): string {
 // per user in total, not per destination.
 export type ClientSiteInfo = {
   host: string;
+  service: string;
   count: number;
   lastSeen: string;
 };
@@ -67,8 +68,32 @@ export function normalizeClientSites(obj: unknown): ClientSiteInfo[] {
     if (typeof o.host !== 'string' || !o.host) continue;
     out.push({
       host: o.host,
+      service: typeof o.service === 'string' ? o.service : '',
       count: typeof o.count === 'number' ? o.count : 0,
       lastSeen: typeof o.lastSeen === 'string' ? o.lastSeen : '',
+    });
+  }
+  return out;
+}
+
+export type ClientSubVisitInfo = {
+  ip: string;
+  device: string;
+  outcome: string; // opened | granted | denied
+  time: string;
+};
+
+export function normalizeClientSubVisits(obj: unknown): ClientSubVisitInfo[] {
+  if (!Array.isArray(obj)) return [];
+  const out: ClientSubVisitInfo[] = [];
+  for (const x of obj) {
+    if (!x || typeof x !== 'object') continue;
+    const o = x as Record<string, unknown>;
+    out.push({
+      ip: typeof o.ip === 'string' ? o.ip : '',
+      device: typeof o.device === 'string' ? o.device : '',
+      outcome: typeof o.outcome === 'string' ? o.outcome : '',
+      time: typeof o.time === 'string' ? o.time : '',
     });
   }
   return out;
