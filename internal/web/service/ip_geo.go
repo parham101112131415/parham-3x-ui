@@ -49,6 +49,23 @@ const ipGeoCacheVersion = 2
 // persistent cache first and the geo sources on a miss. Best-effort by
 // design: any failure returns nil and never blocks or fails the caller —
 // the IP itself is still displayed, just without coordinates.
+// LookupIpGeoLabel returns a short "City, Country" label for an IP, or ""
+// when no location is known. Used by notification texts outside this package.
+func LookupIpGeoLabel(ip string) string {
+	info := lookupIpGeo(ip)
+	if info == nil {
+		return ""
+	}
+	label := info.City
+	if info.Country != "" {
+		if label != "" {
+			label += ", "
+		}
+		label += info.Country
+	}
+	return label
+}
+
 func lookupIpGeo(ip string) *IpGeoInfo {
 	defer func() {
 		if r := recover(); r != nil {

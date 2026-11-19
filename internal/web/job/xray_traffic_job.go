@@ -19,6 +19,7 @@ type XrayTrafficJob struct {
 	xrayService     service.XrayService
 	inboundService  service.InboundService
 	outboundService outbound.OutboundService
+	speedLimiter    *speedLimiter
 }
 
 // clientStatsSnapshotMaxClients caps how many client_traffics rows the job
@@ -108,6 +109,12 @@ func (j *XrayTrafficJob) Run() {
 	if needRestart0 || needRestart1 {
 		j.xrayService.SetToNeedRestart()
 	}
+
+	// Per-client speed caps: clientTraffics are this poll's per-email deltas.
+	if j.speedLimiter == nil {
+		j.speedLimiter = newSpeedLimiter()
+	}
+	j.speedLimiter.enforce(clientTraffics)
 
 	// Derive the local online set from this poll's per-email deltas rather
 	// than the shared last_online column, which remote-node syncs also bump

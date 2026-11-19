@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -78,6 +79,8 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/amneziawglogs/:count", a.getAmneziaWGLogs)
 	g.POST("/importDB", a.importDB)
+	g.POST("/ghBackupRun", a.ghBackupRun)
+	g.POST("/ghBackupImport", a.ghBackupImport)
 	g.POST("/getNewEchCert", a.getNewEchCert)
 	g.POST("/getCertHash", a.getCertHash)
 	g.POST("/getRemoteCertHash", a.getRemoteCertHash)
@@ -397,6 +400,32 @@ func (a *ServerController) importDB(c *gin.Context) {
 	// browser's restartPanel follow-up can 401 once the imported users land (#6446).
 	_ = a.panelService.RestartPanel(3 * time.Second)
 	jsonObj(c, I18nWeb(c, "pages.index.importDatabaseSuccess"), nil)
+}
+
+// ghBackupRun pushes a database backup to the configured GitHub repo now.
+func (a *ServerController) ghBackupRun(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Minute)
+	defer cancel()
+	svc := &service.GithubBackupService{}
+	if err := svc.BackupNow(ctx); err != nil {
+		jsonMsg(c, "GitHub backup failed", err)
+		return
+	}
+	jsonObj(c, "GitHub backup completed", nil)
+}
+
+// ghBackupImport downloads this panel's backup file from the GitHub repo and
+// restores it, then restarts the panel like the file-import handler does.
+func (a *ServerController) ghBackupImport(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Minute)
+	defer cancel()
+	svc := &service.GithubBackupService{}
+	if err := svc.ImportNow(ctx); err != nil {
+		jsonMsg(c, "GitHub import failed", err)
+		return
+	}
+	_ = a.panelService.RestartPanel(3 * time.Second)
+	jsonObj(c, "GitHub backup imported; panel is restarting", nil)
 }
 
 // descendants publishes read-only summaries of the nodes this panel manages so

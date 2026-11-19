@@ -90,6 +90,14 @@ func (j *CheckClientIpJob) Run() {
 	}
 	// Windows enforces through disconnects and never needs the fail2ban binary.
 	needsBinary := runtime.GOOS != "windows"
+	if needsBinary && hasLimit && !f2bInstalled {
+		// No fail2ban on this host (e.g. a container): fall back to the same
+		// disconnect-based enforcement Windows uses when the operator enabled
+		// it, instead of leaving configured IP limits unenforced.
+		if v, err := (&service.SettingService{}).GetIpLimitDisconnectEnforce(); err == nil && v {
+			needsBinary = false
+		}
+	}
 	enforce := j.resolveEnforce(isFail2BanEnabled(), hasLimit, f2bInstalled, needsBinary)
 	// Read only when the limit is actually applied: this runs every 10s and
 	// most panels carry no IP limit at all.
@@ -413,6 +421,8 @@ func (j *CheckClientIpJob) processObserved(observed map[string]map[string]int64,
 		j.disconnectClientTemporarily(d.inbound, d.email, clients)
 	}
 
+	j.autoDisableOnIpLimit(published)
+
 	j.recordLocalAttribution(attribution)
 
 	return shouldCleanLog
@@ -688,6 +698,33 @@ func (j *CheckClientIpJob) recordBannedSeen(email string, banned, published []mo
 
 // disconnectClientTemporarily drops a client's credential for a moment, so new
 // handshakes are refused; the fail2ban ban is what ends live traffic.
+// autoDisableOnIpLimit disables clients that opted into ipLimitAutoDisable
+// when this scan actually published a ban for them — the moment their live
+// IPs exceeded the limit. The disable is sticky: only a manual re-enable in
+// the panel brings the client back, mirroring the old panel's behaviour.
+func (j *CheckClientIpJob) autoDisableOnIpLimit(published []pendingBan) {
+	if len(published) == 0 {
+		return
+	}
+	db := database.GetDB()
+	for _, d := range published {
+		var rec model.ClientRecord
+		if err := db.Where("email = ?", d.email).First(&rec).Error; err != nil {
+			continue
+		}
+		if !rec.IpLimitAutoDisable || !rec.Enable {
+			continue
+		}
+		clientSvc := &service.ClientService{}
+		inboundSvc := &service.InboundService{}
+		if _, _, err := clientSvc.BulkSetEnable(inboundSvc, []string{d.email}, false); err != nil {
+			logger.Warningf("[LIMIT_IP] auto-disable %s failed: %v", d.email, err)
+			continue
+		}
+		logger.Warningf("[LIMIT_IP] auto-disabled %s: live IPs exceeded its limit of %d", d.email, rec.LimitIP)
+	}
+}
+
 func (j *CheckClientIpJob) disconnectClientTemporarily(inbound *model.Inbound, clientEmail string, clients []model.Client) {
 	var xrayAPI xray.XrayAPI
 	apiPort := j.resolveXrayAPIPort()

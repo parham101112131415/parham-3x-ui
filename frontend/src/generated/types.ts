@@ -25,8 +25,13 @@ export interface AllSetting {
   externalSubUserAgent: string;
   externalTrafficInformEnable: boolean;
   externalTrafficInformURI: string;
+  ghBackupEnable: boolean;
+  ghBackupFile: string;
+  ghBackupRepo: string;
+  ghBackupToken: string;
   happLinkEnable: boolean;
   ipLimitAllowlist: string;
+  ipLimitDisconnectEnforce: boolean;
   ldapAutoCreate: boolean;
   ldapAutoDelete: boolean;
   ldapBaseDN: string;
@@ -208,9 +213,14 @@ export interface AllSettingView {
   externalSubUserAgent: string;
   externalTrafficInformEnable: boolean;
   externalTrafficInformURI: string;
+  ghBackupEnable: boolean;
+  ghBackupFile: string;
+  ghBackupRepo: string;
+  ghBackupToken: string;
   happLinkEnable: boolean;
   hasApiToken: boolean;
   hasDiscordBotToken: boolean;
+  hasGhBackupToken: boolean;
   hasLdapPassword: boolean;
   hasNordSecret: boolean;
   hasSmtpPassword: boolean;
@@ -218,6 +228,7 @@ export interface AllSettingView {
   hasTwoFactorToken: boolean;
   hasWarpSecret: boolean;
   ipLimitAllowlist: string;
+  ipLimitDisconnectEnforce: boolean;
   ldapAutoCreate: boolean;
   ldapAutoDelete: boolean;
   ldapBaseDN: string;
@@ -429,8 +440,10 @@ export interface Client {
   forwardedPorts?: string;
   group?: string;
   id?: string;
+  ipLimitAutoDisable?: boolean;
   keepAlive?: number | string;
   limitIp: number;
+  limitSpeed?: number;
   password?: string;
   preSharedKey?: string;
   privateKey?: string;
@@ -481,9 +494,11 @@ export interface ClientRecord {
   forwardedPorts: string;
   group: string;
   id: number;
+  ipLimitAutoDisable: boolean;
   keepAlive: number | string;
   limitHwid: number;
   limitIp: number;
+  limitSpeed: number;
   password: string;
   preSharedKey: string;
   privateKey: string;
@@ -539,6 +554,7 @@ export interface ClientSlim {
   inboundIds: number[];
   limitHwid: number;
   limitIp: number;
+  limitSpeed: number;
   reset: number;
   resetDay: number;
   resetMax: number;

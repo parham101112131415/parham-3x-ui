@@ -1645,6 +1645,17 @@ func (s *ServerService) BackupFilename(requestHost string) string {
 	return s.backupHost(requestHost) + backupDateSuffix(time.Now()) + ext
 }
 
+// StableBackupFilename returns the fixed per-panel backup filename used by
+// the scheduled GitHub backup: the same host-based base as BackupFilename but
+// WITHOUT the date suffix, so every run replaces the same file in the repo.
+func (s *ServerService) StableBackupFilename() string {
+	ext := ".db"
+	if database.IsPostgres() {
+		ext = ".dump"
+	}
+	return s.backupHost("") + ext
+}
+
 // backupDateSuffix returns the _YYYY-MM-DD_HHMMSS chronological suffix appended
 // after the host in backup filenames. Uses server-local time for consistency
 // with the timestamp printed in the Telegram backup message body.

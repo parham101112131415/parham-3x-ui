@@ -263,6 +263,18 @@ var defaultValueMap = map[string]string{
 	"discordMemory":        "80",
 	"discordLang":          "en-US",
 	"discordEnabledEvents": "login.attempt,cpu.high",
+
+	// IP-limit enforcement without fail2ban (parham): on hosts with no
+	// fail2ban binary (containers), enforce per-client IP limits through
+	// Xray disconnects instead of skipping enforcement entirely.
+	"ipLimitDisconnectEnforce": "true",
+
+	// GitHub database backup (parham): one fixed file per panel in the repo,
+	// replaced on every run, mirroring the old panel's GitHub backup.
+	"ghBackupEnable": "false",
+	"ghBackupToken":  "",
+	"ghBackupRepo":   "parham101112131415/parham-panel-backup",
+	"ghBackupFile":   "",
 }
 
 // SettingService provides business logic for application settings management.
@@ -362,6 +374,7 @@ func (s *SettingService) GetAllSettingView() (*entity.AllSettingView, error) {
 	view.HasNordSecret = secretConfigured(mustString(s.GetNord()))
 	view.HasSmtpPassword = secretConfigured(allSetting.SmtpPassword)
 	view.HasDiscordBotToken = secretConfigured(allSetting.DiscordBotToken)
+	view.HasGhBackupToken = secretConfigured(allSetting.GhBackupToken)
 	var apiTokenCount int64
 	if err := database.GetDB().Model(model.ApiToken{}).Where("enabled = ?", true).Count(&apiTokenCount).Error; err == nil {
 		view.HasApiToken = apiTokenCount > 0
@@ -371,6 +384,7 @@ func (s *SettingService) GetAllSettingView() (*entity.AllSettingView, error) {
 	view.LdapPassword = ""
 	view.SmtpPassword = ""
 	view.DiscordBotToken = ""
+	view.GhBackupToken = ""
 	return view, nil
 }
 
@@ -1637,6 +1651,46 @@ func (s *SettingService) SetDiscordBotBackup(value bool) error {
 	return s.setBool("discordBotBackup", value)
 }
 
+func (s *SettingService) GetIpLimitDisconnectEnforce() (bool, error) {
+	return s.getBool("ipLimitDisconnectEnforce")
+}
+
+func (s *SettingService) SetIpLimitDisconnectEnforce(value bool) error {
+	return s.setBool("ipLimitDisconnectEnforce", value)
+}
+
+func (s *SettingService) GetGhBackupEnable() (bool, error) {
+	return s.getBool("ghBackupEnable")
+}
+
+func (s *SettingService) SetGhBackupEnable(value bool) error {
+	return s.setBool("ghBackupEnable", value)
+}
+
+func (s *SettingService) GetGhBackupToken() (string, error) {
+	return s.getString("ghBackupToken")
+}
+
+func (s *SettingService) SetGhBackupToken(value string) error {
+	return s.setString("ghBackupToken", value)
+}
+
+func (s *SettingService) GetGhBackupRepo() (string, error) {
+	return s.getString("ghBackupRepo")
+}
+
+func (s *SettingService) SetGhBackupRepo(value string) error {
+	return s.setString("ghBackupRepo", value)
+}
+
+func (s *SettingService) GetGhBackupFile() (string, error) {
+	return s.getString("ghBackupFile")
+}
+
+func (s *SettingService) SetGhBackupFile(value string) error {
+	return s.setString("ghBackupFile", value)
+}
+
 func (s *SettingService) GetDiscordLang() (string, error) {
 	return s.getString("discordLang")
 }
@@ -1672,6 +1726,7 @@ type SecretClears struct {
 	LdapPassword    bool
 	SmtpPassword    bool
 	DiscordBotToken bool
+	GhBackupToken   bool
 }
 
 func (s *SettingService) UpdateAllSetting(allSetting *entity.AllSetting, clears SecretClears) error {
@@ -1820,6 +1875,13 @@ func (s *SettingService) preserveRedactedSecrets(allSetting *entity.AllSetting, 
 			return err
 		}
 		allSetting.DiscordBotToken = value
+	}
+	if !clears.GhBackupToken && strings.TrimSpace(allSetting.GhBackupToken) == "" {
+		value, err := s.GetGhBackupToken()
+		if err != nil {
+			return err
+		}
+		allSetting.GhBackupToken = value
 	}
 	return nil
 }
@@ -2042,6 +2104,7 @@ var factoryDefaultSecretKeys = map[string]bool{
 	"ldapPassword":    true,
 	"smtpPassword":    true,
 	"discordBotToken": true,
+	"ghBackupToken":   true,
 }
 
 /*

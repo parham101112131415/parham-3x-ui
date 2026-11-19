@@ -40,6 +40,7 @@ type updateSettingForm struct {
 	ClearLdapPassword    bool   `json:"clearLdapPassword" form:"clearLdapPassword"`
 	ClearSmtpPassword    bool   `json:"clearSmtpPassword" form:"clearSmtpPassword"`
 	ClearDiscordBotToken bool   `json:"clearDiscordBotToken" form:"clearDiscordBotToken"`
+	ClearGhBackupToken   bool   `json:"clearGhBackupToken" form:"clearGhBackupToken"`
 }
 
 type validateRegexForm struct {
@@ -156,6 +157,7 @@ func (a *SettingController) updateSetting(c *gin.Context) {
 		LdapPassword:    form.ClearLdapPassword,
 		SmtpPassword:    form.ClearSmtpPassword,
 		DiscordBotToken: form.ClearDiscordBotToken,
+		GhBackupToken:   form.ClearGhBackupToken,
 	})
 	if err == nil && twoFactorErr == nil && !oldTwoFactor && allSetting.TwoFactorEnable {
 		if bumpErr := a.userService.BumpLoginEpoch(); bumpErr != nil {

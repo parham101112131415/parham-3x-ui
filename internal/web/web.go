@@ -382,6 +382,8 @@ func (s *Server) startTask(restartXray bool, loc *time.Location) {
 	_, _ = s.cron.AddJob("@daily", job.NewClearLogsJob())
 	_, _ = s.cron.AddJob(cadenceXrayLogPrune, job.NewPruneXrayLogsJob())
 	_, _ = s.cron.AddJob("@hourly", job.NewWarpIpJob())
+	_, _ = s.cron.AddJob("@hourly", job.NewGithubBackupJob())
+	_, _ = s.cron.AddJob("@every 1m", job.NewShareWatchJob())
 
 	// Inbound traffic reset jobs
 	// Run every hour

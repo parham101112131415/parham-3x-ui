@@ -958,6 +958,8 @@ type Client struct {
 	AdTag               string           `json:"adTag,omitempty" example:"0123456789abcdef0123456789abcdef"`
 	Email               string           `json:"email"`                            // Client email identifier
 	LimitIP             int              `json:"limitIp"`                          // IP limit for this client
+	LimitSpeed          int64            `json:"limitSpeed,omitempty"`             // Per-client speed cap in bytes/sec, 0 = unlimited
+	IpLimitAutoDisable  bool             `json:"ipLimitAutoDisable,omitempty"`     // Disable the client when its IP limit is exceeded
 	TotalGB             int64            `json:"totalGB" form:"totalGB"`           // Total traffic limit in GB
 	ExpiryTime          int64            `json:"expiryTime" form:"expiryTime"`     // Expiration timestamp
 	Enable              bool             `json:"enable" form:"enable"`             // Whether the client is enabled
@@ -998,6 +1000,8 @@ type ClientRecord struct {
 	Secret            string         `json:"secret" gorm:"column:secret"`
 	AdTag             string         `json:"adTag" gorm:"column:ad_tag;default:''"`
 	LimitIP           int            `json:"limitIp" gorm:"column:limit_ip"`
+	LimitSpeed        int64          `json:"limitSpeed" gorm:"column:limit_speed;default:0"`
+	IpLimitAutoDisable bool          `json:"ipLimitAutoDisable" gorm:"column:ip_limit_auto_disable;default:false"`
 	LimitHwid         int            `json:"limitHwid" gorm:"column:limit_hwid;default:0"`
 	TotalGB           int64          `json:"totalGB" gorm:"column:total_gb"`
 	ExpiryTime        int64          `json:"expiryTime" gorm:"column:expiry_time"`
@@ -1280,6 +1284,8 @@ func (c *Client) ToRecord() *ClientRecord {
 		Security:          c.Security,
 		ClientHostRuleIds: CloneClientHostRuleIds(c.ClientHostRuleIds),
 		LimitIP:           c.LimitIP,
+		LimitSpeed:        c.LimitSpeed,
+		IpLimitAutoDisable: c.IpLimitAutoDisable,
 		TotalGB:           c.TotalGB,
 		ExpiryTime:        c.ExpiryTime,
 		Enable:            c.Enable,
@@ -1340,6 +1346,8 @@ func (r *ClientRecord) ToClient() *Client {
 		Security:          r.Security,
 		ClientHostRuleIds: CloneClientHostRuleIds(r.ClientHostRuleIds),
 		LimitIP:           r.LimitIP,
+		LimitSpeed:        r.LimitSpeed,
+		IpLimitAutoDisable: r.IpLimitAutoDisable,
 		TotalGB:           r.TotalGB,
 		ExpiryTime:        r.ExpiryTime,
 		Enable:            r.Enable,

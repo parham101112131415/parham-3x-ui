@@ -80,6 +80,13 @@ type AllSetting struct {
 	DiscordLang          string `json:"discordLang" form:"discordLang"`
 	DiscordEnabledEvents string `json:"discordEnabledEvents" form:"discordEnabledEvents"`
 
+	IpLimitDisconnectEnforce bool `json:"ipLimitDisconnectEnforce" form:"ipLimitDisconnectEnforce"`
+
+	GhBackupEnable bool   `json:"ghBackupEnable" form:"ghBackupEnable"`
+	GhBackupToken  string `json:"ghBackupToken" form:"ghBackupToken"`
+	GhBackupRepo   string `json:"ghBackupRepo" form:"ghBackupRepo"`
+	GhBackupFile   string `json:"ghBackupFile" form:"ghBackupFile"`
+
 	OutboundDownThreshold int `json:"outboundDownThreshold" form:"outboundDownThreshold" validate:"gte=1,lte=100"`
 	NodeDownThreshold     int `json:"nodeDownThreshold" form:"nodeDownThreshold" validate:"gte=1,lte=100"`
 
@@ -227,6 +234,7 @@ type AllSettingView struct {
 	HasNordSecret      bool `json:"hasNordSecret"`
 	HasSmtpPassword    bool `json:"hasSmtpPassword"`
 	HasDiscordBotToken bool `json:"hasDiscordBotToken"`
+	HasGhBackupToken   bool `json:"hasGhBackupToken"`
 }
 
 func pathHasForbiddenChar(s string) bool {

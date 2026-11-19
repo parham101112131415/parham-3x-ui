@@ -185,6 +185,11 @@ export const AllSettingSchema = z
     discordMemory: z.number().int().min(0).max(100).optional(),
     discordLang: z.string().optional(),
     discordEnabledEvents: z.string().optional(),
+    ipLimitDisconnectEnforce: z.boolean().optional(),
+    ghBackupEnable: z.boolean().optional(),
+    ghBackupToken: z.string().optional(),
+    ghBackupRepo: z.string().optional(),
+    ghBackupFile: z.string().optional(),
   })
   .loose();
 

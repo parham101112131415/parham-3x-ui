@@ -52,11 +52,26 @@ export const SCHEMAS: Record<string, unknown> = {
       "externalTrafficInformURI": {
         "type": "string"
       },
+      "ghBackupEnable": {
+        "type": "boolean"
+      },
+      "ghBackupFile": {
+        "type": "string"
+      },
+      "ghBackupRepo": {
+        "type": "string"
+      },
+      "ghBackupToken": {
+        "type": "string"
+      },
       "happLinkEnable": {
         "type": "boolean"
       },
       "ipLimitAllowlist": {
         "type": "string"
+      },
+      "ipLimitDisconnectEnforce": {
+        "type": "boolean"
       },
       "ldapAutoCreate": {
         "type": "boolean"
@@ -599,8 +614,13 @@ export const SCHEMAS: Record<string, unknown> = {
       "externalSubUserAgent",
       "externalTrafficInformEnable",
       "externalTrafficInformURI",
+      "ghBackupEnable",
+      "ghBackupFile",
+      "ghBackupRepo",
+      "ghBackupToken",
       "happLinkEnable",
       "ipLimitAllowlist",
+      "ipLimitDisconnectEnforce",
       "ldapAutoCreate",
       "ldapAutoDelete",
       "ldapBaseDN",
@@ -819,6 +839,18 @@ export const SCHEMAS: Record<string, unknown> = {
       "externalTrafficInformURI": {
         "type": "string"
       },
+      "ghBackupEnable": {
+        "type": "boolean"
+      },
+      "ghBackupFile": {
+        "type": "string"
+      },
+      "ghBackupRepo": {
+        "type": "string"
+      },
+      "ghBackupToken": {
+        "type": "string"
+      },
       "happLinkEnable": {
         "type": "boolean"
       },
@@ -826,6 +858,9 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "boolean"
       },
       "hasDiscordBotToken": {
+        "type": "boolean"
+      },
+      "hasGhBackupToken": {
         "type": "boolean"
       },
       "hasLdapPassword": {
@@ -848,6 +883,9 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "ipLimitAllowlist": {
         "type": "string"
+      },
+      "ipLimitDisconnectEnforce": {
+        "type": "boolean"
       },
       "ldapAutoCreate": {
         "type": "boolean"
@@ -1390,9 +1428,14 @@ export const SCHEMAS: Record<string, unknown> = {
       "externalSubUserAgent",
       "externalTrafficInformEnable",
       "externalTrafficInformURI",
+      "ghBackupEnable",
+      "ghBackupFile",
+      "ghBackupRepo",
+      "ghBackupToken",
       "happLinkEnable",
       "hasApiToken",
       "hasDiscordBotToken",
+      "hasGhBackupToken",
       "hasLdapPassword",
       "hasNordSecret",
       "hasSmtpPassword",
@@ -1400,6 +1443,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "hasTwoFactorToken",
       "hasWarpSecret",
       "ipLimitAllowlist",
+      "ipLimitDisconnectEnforce",
       "ldapAutoCreate",
       "ldapAutoDelete",
       "ldapBaseDN",
@@ -1770,6 +1814,10 @@ export const SCHEMAS: Record<string, unknown> = {
         "description": "Unique client identifier",
         "type": "string"
       },
+      "ipLimitAutoDisable": {
+        "description": "Disable the client when its IP limit is exceeded",
+        "type": "boolean"
+      },
       "keepAlive": {
         "description": "Numeric values or AmneziaWG ranges; 0 disables, omission preserves.",
         "oneOf": [
@@ -1783,6 +1831,11 @@ export const SCHEMAS: Record<string, unknown> = {
       },
       "limitIp": {
         "description": "IP limit for this client",
+        "type": "integer"
+      },
+      "limitSpeed": {
+        "description": "Per-client speed cap in bytes/sec, 0 = unlimited",
+        "format": "int64",
         "type": "integer"
       },
       "password": {
@@ -2008,6 +2061,9 @@ export const SCHEMAS: Record<string, unknown> = {
       "id": {
         "type": "integer"
       },
+      "ipLimitAutoDisable": {
+        "type": "boolean"
+      },
       "keepAlive": {
         "description": "Numeric values or AmneziaWG ranges.",
         "oneOf": [
@@ -2023,6 +2079,10 @@ export const SCHEMAS: Record<string, unknown> = {
         "type": "integer"
       },
       "limitIp": {
+        "type": "integer"
+      },
+      "limitSpeed": {
+        "format": "int64",
         "type": "integer"
       },
       "password": {
@@ -2094,9 +2154,11 @@ export const SCHEMAS: Record<string, unknown> = {
       "forwardedPorts",
       "group",
       "id",
+      "ipLimitAutoDisable",
       "keepAlive",
       "limitHwid",
       "limitIp",
+      "limitSpeed",
       "password",
       "preSharedKey",
       "privateKey",
@@ -2267,6 +2329,11 @@ export const SCHEMAS: Record<string, unknown> = {
         "example": 0,
         "type": "integer"
       },
+      "limitSpeed": {
+        "example": 0,
+        "format": "int64",
+        "type": "integer"
+      },
       "reset": {
         "example": 0,
         "type": "integer"
@@ -2314,6 +2381,7 @@ export const SCHEMAS: Record<string, unknown> = {
       "inboundIds",
       "limitHwid",
       "limitIp",
+      "limitSpeed",
       "reset",
       "resetDay",
       "resetMax",

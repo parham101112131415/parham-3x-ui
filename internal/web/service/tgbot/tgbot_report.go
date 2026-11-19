@@ -42,6 +42,9 @@ func (t *Tgbot) SendReport() {
 	if deplete := t.depleteReport(); deplete != "" {
 		body += "\r\n\r\n" + deplete
 	}
+	if full := t.parhamFullReport(); full != "" {
+		body += "\r\n\r\n" + full
+	}
 	for _, adminID := range adminSnapshot() {
 		t.sendReport(adminID, body)
 	}

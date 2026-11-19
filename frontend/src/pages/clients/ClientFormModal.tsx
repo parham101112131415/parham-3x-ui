@@ -175,6 +175,8 @@ const EMPTY: Values = {
   trafficReset: 'never' as const,
   trafficResetDay: 1,
   limitIp: 0,
+  limitSpeedMbps: 0,
+  ipLimitAutoDisable: false,
   limitHwid: 0,
   tgId: 0,
   group: '',
@@ -291,6 +293,8 @@ export default function ClientFormModal({
   const auth = useWatch({ control: methods.control, name: 'auth' });
   const wgPrivateKey = useWatch({ control: methods.control, name: 'wgPrivateKey' });
   const limitIp = useWatch({ control: methods.control, name: 'limitIp' });
+  const limitSpeedMbps = useWatch({ control: methods.control, name: 'limitSpeedMbps' });
+  const ipLimitAutoDisable = useWatch({ control: methods.control, name: 'ipLimitAutoDisable' });
   const {
     fields: externalLinkFields,
     append: appendExternalLink,
@@ -394,6 +398,8 @@ export default function ClientFormModal({
         trafficReset: (client.trafficReset as ClientFormValues['trafficReset']) || 'never',
         trafficResetDay: Number(client.trafficResetDay) || 1,
         limitIp: client.limitIp || 0,
+        limitSpeedMbps: (client.limitSpeed || 0) / 1_000_000,
+        ipLimitAutoDisable: !!client.ipLimitAutoDisable,
         limitHwid: client.limitHwid || 0,
         tgId: Number(client.tgId) || 0,
         group: client.group || '',
@@ -759,6 +765,8 @@ export default function ClientFormModal({
       trafficReset: values.trafficReset,
       trafficResetDay: values.trafficResetDay,
       limitIp: values.limitIp,
+      limitSpeedMbps: values.limitSpeedMbps,
+      ipLimitAutoDisable: values.ipLimitAutoDisable,
       limitHwid: values.limitHwid,
       tgId: values.tgId,
       group: values.group,
@@ -797,6 +805,8 @@ export default function ClientFormModal({
       trafficReset: values.trafficReset || 'never',
       trafficResetDay: Number(values.trafficResetDay) || 1,
       limitIp: Number(values.limitIp) || 0,
+      limitSpeed: Math.round((Number(values.limitSpeedMbps) || 0) * 1_000_000),
+      ipLimitAutoDisable: !!values.ipLimitAutoDisable,
       limitHwid: Number(values.limitHwid) || 0,
       tgId: Number(values.tgId) || 0,
       group: values.group,
@@ -1060,6 +1070,39 @@ export default function ClientFormModal({
                             <span id={`${uid}-limit-hwid-hint`} hidden>
                               {t('pages.clients.limitHwidDesc')}
                             </span>
+                          </Form.Item>
+                        </Col>
+                      </Row>
+
+                      <Row gutter={16}>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            htmlFor={`${uid}-limit-speed`}
+                            label={t('pages.clients.limitSpeed')}
+                            tooltip={t('pages.clients.limitSpeedDesc')}
+                          >
+                            <InputNumber
+                              id={`${uid}-limit-speed`}
+                              value={limitSpeedMbps}
+                              min={0}
+                              step={0.5}
+                              style={{ width: '100%' }}
+                              onChange={(v) =>
+                                methods.setValue('limitSpeedMbps', Number(v) || 0)
+                              }
+                            />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} md={12}>
+                          <Form.Item
+                            label={t('pages.clients.ipLimitAutoDisable')}
+                            tooltip={t('pages.clients.ipLimitAutoDisableDesc')}
+                          >
+                            <Switch
+                              checked={!!ipLimitAutoDisable}
+                              disabled={!limitIp}
+                              onChange={(v) => methods.setValue('ipLimitAutoDisable', v)}
+                            />
                           </Form.Item>
                         </Col>
                       </Row>
