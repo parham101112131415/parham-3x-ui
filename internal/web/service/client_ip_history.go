@@ -88,9 +88,10 @@ func trimClientIpHistory(db *gorm.DB, email string) {
 // IP, when it was last seen, and the name of the node it connected through
 // ("" = this local panel).
 type ClientIpHistoryInfo struct {
-	IP   string `json:"ip"`
-	Time string `json:"time"`
-	Node string `json:"node"`
+	IP   string     `json:"ip"`
+	Time string     `json:"time"`
+	Node string     `json:"node"`
+	Geo  *IpGeoInfo `json:"geo,omitempty"`
 }
 
 // GetClientIpHistory returns a client's persistent IP history, newest first,
@@ -116,6 +117,7 @@ func (s *InboundService) GetClientIpHistory(email string) ([]ClientIpHistoryInfo
 		if r.NodeGuid != "" && r.NodeGuid != localGuid {
 			info.Node = guidName[r.NodeGuid]
 		}
+		info.Geo = lookupIpGeo(r.IP)
 		out = append(out, info)
 	}
 	return out, nil

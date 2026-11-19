@@ -11,7 +11,12 @@ import {
 
 import { ClipboardManager, FileManager, HttpUtil, IntlUtil, SizeFormatter } from '@/utils';
 import { formatInboundLabel, formatTunnelConfigMeta } from '@/lib/inbounds/label';
-import { normalizeClientIps, type ClientIpInfo } from '@/lib/clients/ip-log';
+import {
+  geoLabel,
+  geoMapsUrl,
+  normalizeClientIps,
+  type ClientIpInfo,
+} from '@/lib/clients/ip-log';
 import { useDatepicker } from '@/hooks/useDatepicker';
 import { useClientHwids } from '@/hooks/useClientHwids';
 import type { ClientRecord, InboundOption } from '@/hooks/useClients';
@@ -541,11 +546,25 @@ export default function ClientInfoModal({
                   </td>
                   <td>
                     {ipRowEntry ? (
-                      <Tag color="blue" className="ip-tag">
-                        {ipRowEntry.ip}
-                        {ipRowEntry.time ? ` (${ipRowEntry.time})` : ''}
-                        {ipRowEntry.node ? ` @ ${ipRowEntry.node}` : ''}
-                      </Tag>
+                      <>
+                        <Tag color="blue" className="ip-tag">
+                          {ipRowEntry.ip}
+                          {ipRowEntry.time ? ` (${ipRowEntry.time})` : ''}
+                          {ipRowEntry.node ? ` @ ${ipRowEntry.node}` : ''}
+                        </Tag>
+                        {ipRowEntry.geo ? (
+                          <div style={{ fontSize: 11, marginTop: 2 }}>
+                            📍{' '}
+                            <a
+                              href={geoMapsUrl(ipRowEntry.geo)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {geoLabel(ipRowEntry.geo)}
+                            </a>
+                          </div>
+                        ) : null}
+                      </>
                     ) : (
                       <span className="hint">—</span>
                     )}
@@ -985,6 +1004,14 @@ export default function ClientInfoModal({
                     @ {entry.node}
                   </span>
                 ) : null}
+                {entry.geo ? (
+                  <span style={{ display: 'block', fontSize: 11 }}>
+                    📍{' '}
+                    <a href={geoMapsUrl(entry.geo)} target="_blank" rel="noreferrer">
+                      {geoLabel(entry.geo)}
+                    </a>
+                  </span>
+                ) : null}
               </Tag>
             ))}
           </div>
@@ -1016,6 +1043,14 @@ export default function ClientInfoModal({
                   {entry.node ? (
                     <span style={{ marginInlineStart: 6, opacity: 0.85, fontWeight: 600 }}>
                       @ {entry.node}
+                    </span>
+                  ) : null}
+                  {entry.geo ? (
+                    <span style={{ display: 'block', fontSize: 11 }}>
+                      📍{' '}
+                      <a href={geoMapsUrl(entry.geo)} target="_blank" rel="noreferrer">
+                        {geoLabel(entry.geo)}
+                      </a>
                     </span>
                   ) : null}
                 </Tag>

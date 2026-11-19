@@ -33,7 +33,12 @@ import { Controller, FormProvider, useForm, useWatch, useFieldArray } from 'reac
 import { HttpUtil, IntlUtil, RandomUtil, Wireguard } from '@/utils';
 import { formatInboundLabel } from '@/lib/inbounds/label';
 import { generateMtprotoSecret } from '@/lib/xray/inbound-defaults';
-import { normalizeClientIps, type ClientIpInfo } from '@/lib/clients/ip-log';
+import {
+  geoLabel,
+  geoMapsUrl,
+  normalizeClientIps,
+  type ClientIpInfo,
+} from '@/lib/clients/ip-log';
 import { resolveExternalLinkExpiry } from '@/lib/clients/external-link';
 import { useDatepicker } from '@/hooks/useDatepicker';
 import { useClientHwids } from '@/hooks/useClientHwids';
@@ -1763,6 +1768,14 @@ export default function ClientFormModal({
                 {entry.node ? (
                   <span style={{ marginInlineStart: 6, opacity: 0.85, fontWeight: 600 }}>
                     @ {entry.node}
+                  </span>
+                ) : null}
+                {entry.geo ? (
+                  <span style={{ display: 'block', fontSize: 11 }}>
+                    📍{' '}
+                    <a href={geoMapsUrl(entry.geo)} target="_blank" rel="noreferrer">
+                      {geoLabel(entry.geo)}
+                    </a>
                   </span>
                 ) : null}
               </Tag>
