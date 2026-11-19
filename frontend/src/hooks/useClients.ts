@@ -10,6 +10,7 @@ import {
   ClientPageResponseSchema,
   InboundOptionsSchema,
   OnlinesSchema,
+  OnlinesByGuidSchema,
   BulkAdjustResultSchema,
   BulkAttachResultSchema,
   BulkCreateResultSchema,
@@ -247,6 +248,28 @@ export function useClients(options: UseClientsOptions = {}) {
     staleTime: Infinity,
   });
 
+  const onlinesByGuidQuery = useQuery({
+    queryKey: keys.clients.onlinesByGuid(),
+    queryFn: async () => {
+      const msg = await HttpUtil.post('/panel/api/clients/onlinesByGuid', undefined, {
+        silent: true,
+      });
+      if (!msg?.success) throw new Error(msg?.msg || 'Failed to fetch onlines by guid');
+      const validated = parseMsg(msg, OnlinesByGuidSchema, 'clients/onlinesByGuid');
+      const obj = validated.obj;
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return {};
+      const out: Record<string, string[]> = {};
+      for (const [guid, emails] of Object.entries(obj)) {
+        out[guid] = Array.isArray(emails)
+          ? emails.filter((e): e is string => typeof e === 'string')
+          : [];
+      }
+      return out;
+    },
+    enabled: withList,
+    staleTime: Infinity,
+  });
+
   const clients = listQuery.data?.items ?? [];
   const total = listQuery.data?.total ?? 0;
   const filtered = listQuery.data?.filtered ?? 0;
@@ -264,6 +287,23 @@ export function useClients(options: UseClientsOptions = {}) {
 
   const inbounds = inboundOptionsQuery.data ?? [];
   const onlines = useMemo(() => onlinesQuery.data ?? [], [onlinesQuery.data]);
+
+  // Hosting panel GUIDs per online client, inverted from onlinesByGuid: the
+  // live answer to "which config (location) is this client connected through
+  // right now". A client connected through several locations lists them all.
+  const clientNodes = useMemo(() => {
+    const byGuid = onlinesByGuidQuery.data ?? {};
+    const out: Record<string, string[]> = {};
+    for (const [guid, emails] of Object.entries(byGuid)) {
+      if (!Array.isArray(emails)) continue;
+      for (const email of emails) {
+        if (!email) continue;
+        (out[email] ??= []).push(guid);
+      }
+    }
+    for (const email of Object.keys(out)) out[email].sort();
+    return out;
+  }, [onlinesByGuidQuery.data]);
 
   const defaults = defaultsQuery.data ?? {};
   const subSettings: SubSettings = useMemo(
@@ -750,12 +790,16 @@ export function useClients(options: UseClientsOptions = {}) {
       if (!payload || typeof payload !== 'object') return;
       const p = payload as {
         onlineClients?: string[];
+        onlineByGuid?: Record<string, string[]>;
         clientTraffics?: { email: string; up: number; down: number }[];
         clientTrafficSource?: 'xray' | 'tuic' | 'node';
         clientTrafficIntervalMs?: number;
       };
       if (Array.isArray(p.onlineClients)) {
         queryClient.setQueryData(keys.clients.onlines(), p.onlineClients);
+      }
+      if (p.onlineByGuid && typeof p.onlineByGuid === 'object') {
+        queryClient.setQueryData(keys.clients.onlinesByGuid(), p.onlineByGuid);
       }
       if (Array.isArray(p.clientTraffics)) {
         // Xray reports a row per client whether or not it moved a byte, so most of
@@ -896,6 +940,7 @@ export function useClients(options: UseClientsOptions = {}) {
     importClients,
     setEnable,
     clientSpeed,
+    clientNodes,
     applyTrafficEvent,
     applyClientStatsEvent,
   };

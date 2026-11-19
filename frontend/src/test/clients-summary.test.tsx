@@ -119,12 +119,14 @@ describe('client summary always reflects the server, never a client_stats recomp
   it('combines independently sampled TUIC and Xray speeds and replaces each source snapshot', async () => {
     const result = await loadedHook();
 
+    // No explicit interval: the default is the 1s traffic poll interval, so
+    // the raw per-second delta is already the rate.
     act(() => {
       result.current.applyTrafficEvent({
         clientTraffics: [{ email: 'shared@example.test', up: 100, down: 150 }],
       });
     });
-    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 20, down: 30 });
+    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 100, down: 150 });
 
     act(() => {
       result.current.applyTrafficEvent({
@@ -136,14 +138,14 @@ describe('client summary always reflects the server, never a client_stats recomp
         ],
       });
     });
-    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 60, down: 50 });
+    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 140, down: 170 });
 
     act(() => {
       result.current.applyTrafficEvent({
         clientTraffics: [{ email: 'shared@example.test', up: 50, down: 25 }],
       });
     });
-    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 50, down: 25 });
+    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 90, down: 45 });
 
     act(() => {
       result.current.applyTrafficEvent({
@@ -152,7 +154,18 @@ describe('client summary always reflects the server, never a client_stats recomp
         clientTraffics: [],
       });
     });
-    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 10, down: 5 });
+    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 50, down: 25 });
+
+    // Node-synced deltas form their own source snapshot: they add to the
+    // local Xray rate instead of replacing it.
+    act(() => {
+      result.current.applyTrafficEvent({
+        clientTrafficSource: 'node',
+        clientTrafficIntervalMs: 1_000,
+        clientTraffics: [{ email: 'shared@example.test', up: 700, down: 300 }],
+      });
+    });
+    expect(result.current.clientSpeed['shared@example.test']).toEqual({ up: 750, down: 325 });
   });
 
   it('expires stale per-source speeds without clearing the other source', async () => {

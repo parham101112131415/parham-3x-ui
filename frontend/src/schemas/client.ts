@@ -273,6 +273,8 @@ export const BulkDetachResultSchema = z.object({
 
 export const OnlinesSchema = nullableStringArray;
 
+export const OnlinesByGuidSchema = z.record(z.string(), nullableStringArray);
+
 export const OnlineByNodeSchema = z
   .record(z.string(), nullableStringArray)
   .nullable()

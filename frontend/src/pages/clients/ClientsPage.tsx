@@ -70,6 +70,7 @@ import type {
 } from '@/hooks/useClients';
 import ClientTrafficCell from '@/components/clients/ClientTrafficCell';
 import ClientSpeedTag, { isActiveSpeed } from '@/components/clients/ClientSpeedTag';
+import ClientLocationTags from '@/components/clients/ClientLocationTags';
 import ClientCardComment from '@/components/clients/ClientCardComment';
 import AppSidebar from '@/layouts/AppSidebar';
 import { IntlUtil, SizeFormatter } from '@/utils';
@@ -368,6 +369,7 @@ export default function ClientsPage() {
     importClients,
     setEnable,
     clientSpeed,
+    clientNodes,
     applyTrafficEvent,
     applyClientStatsEvent,
     refresh,
@@ -577,6 +579,33 @@ export default function ClientsPage() {
   }, [allGroups, filters.groups]);
 
   const isOnline = useCallback((email: string) => !!email && onlineSet.has(email), [onlineSet]);
+
+  // Location label per hosting panel GUID: node names for managed nodes.
+  const nodeNameByGuid = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const n of nodes ?? []) {
+      if (n.guid && n.name) map.set(n.guid, n.name);
+    }
+    return map;
+  }, [nodes]);
+  // This panel's own GUID is not in the nodes list. Its label is the remark
+  // of its only local inbound when that is unambiguous (one inbound per
+  // location), so local connections read as that location's config name.
+  const localGuidLabel = useMemo(() => {
+    const remarks = new Set<string>();
+    for (const ib of inbounds ?? []) {
+      if (ib.nodeId == null && ib.remark) remarks.add(ib.remark);
+    }
+    return remarks.size === 1 ? [...remarks][0] : 'Local';
+  }, [inbounds]);
+  // The config location(s) a client is connected through right now.
+  const locationLabelsFor = useCallback(
+    (email: string): string[] => {
+      const guids = clientNodes[email] ?? [];
+      return [...new Set(guids.map((g) => nodeNameByGuid.get(g) ?? localGuidLabel))];
+    },
+    [clientNodes, nodeNameByGuid, localGuidLabel],
+  );
 
   function inboundLabel(id: number) {
     const ib = inboundsById[id];
@@ -1089,7 +1118,7 @@ export default function ClientsPage() {
       {
         title: t('pages.clients.online'),
         key: 'online',
-        width: 90,
+        width: 120,
         render: (_v, record) => {
           const bucket = clientBucket(record);
           const lastOnline = record.traffic?.lastOnline ?? 0;
@@ -1103,10 +1132,20 @@ export default function ClientsPage() {
             );
           if (record.enable && isOnline(record.email))
             return (
-              <Tag color="green" className="dot-tag">
-                <span className="online-dot" />
-                {t('pages.clients.online')}
-              </Tag>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: 4,
+                }}
+              >
+                <Tag color="green" className="dot-tag" style={{ margin: 0 }}>
+                  <span className="online-dot" />
+                  {t('pages.clients.online')}
+                </Tag>
+                <ClientLocationTags labels={locationLabelsFor(record.email)} />
+              </div>
             );
           if (!record.enable) return <Tag>{t('disabled')}</Tag>;
           if (bucket === 'expiring') return <Tag color="orange">{t('depletingSoon')}</Tag>;
@@ -1238,6 +1277,7 @@ export default function ClientsPage() {
       datepicker,
       trafficDiff,
       clientSpeed,
+      locationLabelsFor,
     ],
   );
 
@@ -1885,6 +1925,9 @@ export default function ClientsPage() {
                                       </div>
                                     );
                                   })()}
+                                  {row.enable && isOnline(row.email) && (
+                                    <ClientLocationTags labels={locationLabelsFor(row.email)} />
+                                  )}
                                 </div>
                               );
                             })}
