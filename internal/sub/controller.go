@@ -649,7 +649,7 @@ func (a *SUBController) serveSubPage(c *gin.Context, basePath string, page PageD
 			if execErr := tmpl.Execute(&buf, subData); execErr != nil {
 				logger.Error("sub: custom template execution failed, using default page:", execErr)
 			} else {
-				c.Data(http.StatusOK, "text/html; charset=utf-8", buf.Bytes())
+				c.Data(http.StatusOK, "text/html; charset=utf-8", injectLocCheck(buf.Bytes()))
 				return
 			}
 		}
@@ -677,7 +677,7 @@ func (a *SUBController) serveSubPage(c *gin.Context, basePath string, page PageD
 		`window.__SUB_PAGE_DATA__=` + string(subDataJSON) + `;</script></head>`)
 	out := bytes.Replace(body, []byte("</head>"), inject, 1)
 
-	c.Data(http.StatusOK, "text/html; charset=utf-8", out)
+	c.Data(http.StatusOK, "text/html; charset=utf-8", injectLocCheck(out))
 }
 
 // subPageContext builds the shared view-model map: the template context for

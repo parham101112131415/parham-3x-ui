@@ -13,6 +13,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v3/internal/database"
 	"github.com/mhsanaei/3x-ui/v3/internal/database/model"
 	"github.com/mhsanaei/3x-ui/v3/internal/logger"
+	"github.com/mhsanaei/3x-ui/v3/internal/xray"
 
 	"gorm.io/gorm/clause"
 )
@@ -75,22 +76,18 @@ func parseAccessLogLine(line string) (email, host string, ts int64, ok bool) {
 	return email, host, ts, true
 }
 
-// accessLogPath reads the Xray template's log.access setting — the same
-// file Xray itself writes. "" means access logging is off.
+// accessLogPath returns the access log of the RUNNING Xray config. The
+// panel confines the template's log.access to its log folder when it
+// generates the runtime config (resolveXrayLogPaths keeps only the base
+// name), so the template value is NOT the file Xray writes — the
+// generated config is the only truthful source, via xray.GetAccessLogPath.
+// "" means access logging is off.
 func (s *InboundService) accessLogPath() string {
-	raw, err := (&SettingService{}).GetXrayConfigTemplate()
-	if err != nil || raw == "" {
+	p, err := xray.GetAccessLogPath()
+	if err != nil {
 		return ""
 	}
-	var tpl struct {
-		Log struct {
-			Access string `json:"access"`
-		} `json:"log"`
-	}
-	if err := json.Unmarshal([]byte(raw), &tpl); err != nil {
-		return ""
-	}
-	p := strings.TrimSpace(tpl.Log.Access)
+	p = strings.TrimSpace(p)
 	if p == "" || strings.EqualFold(p, "none") {
 		return ""
 	}
