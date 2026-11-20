@@ -1491,22 +1491,22 @@ func isIgnorableDuplicateColumnErr(gdb *gorm.DB, err error, mdl any) bool {
 	return false
 }
 
-// EnsureFirstUser creates the panel's first user with random credentials and returns
-// them, or returns "" when one exists; only the starting server calls it, so it can print them.
+// EnsureFirstUser creates the panel's first user when none exists. Parham Panel:
+// the first login is the classic admin/admin (the operator changes it in Panel
+// Settings after deploy), so nothing is generated and nothing is printed.
 func EnsureFirstUser() (username, password string, err error) {
 	empty, err := isTableEmpty("users")
 	if err != nil || !empty {
 		return "", "", err
 	}
-	username, password = random.Seq(10), random.Seq(16)
-	hashedPassword, err := crypto.HashPasswordAsBcrypt(password)
+	hashedPassword, err := crypto.HashPasswordAsBcrypt("admin")
 	if err != nil {
 		return "", "", err
 	}
-	if err := db.Create(&model.User{Username: username, Password: hashedPassword}).Error; err != nil {
+	if err := db.Create(&model.User{Username: "admin", Password: hashedPassword}).Error; err != nil {
 		return "", "", err
 	}
-	return username, password, nil
+	return "", "", nil
 }
 
 func seedDefaultSubscriptionPaths() error {

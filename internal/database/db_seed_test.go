@@ -77,29 +77,27 @@ func TestInitDBLeavesNoGuessableCredential(t *testing.T) {
 	}
 }
 
-// The server prints what EnsureFirstUser returns as the only copy of the first
-// login, so it must be the stored credential, and a restart must not mint another.
+// Parham Panel: the first user is the classic admin/admin login, created once;
+// a restart must not mint another user.
 func TestEnsureFirstUserCreatesOneWorkingCredential(t *testing.T) {
 	if err := InitDB(filepath.Join(t.TempDir(), "x-ui.db")); err != nil {
 		t.Fatalf("InitDB: %v", err)
 	}
 	t.Cleanup(func() { _ = CloseDB() })
 
-	username, password, err := EnsureFirstUser()
-	if err != nil {
+	if _, _, err := EnsureFirstUser(); err != nil {
 		t.Fatalf("EnsureFirstUser: %v", err)
 	}
 	var stored model.User
 	if err := db.First(&stored).Error; err != nil {
 		t.Fatalf("read user: %v", err)
 	}
-	if stored.Username != username || password == "" || !crypto.CheckPasswordHash(stored.Password, password) {
-		t.Fatalf("returned %q/%q, stored user %q does not log in with it", username, password, stored.Username)
+	if stored.Username != "admin" || !crypto.CheckPasswordHash(stored.Password, "admin") {
+		t.Fatalf("stored user %q does not log in with admin/admin", stored.Username)
 	}
 
-	againUser, againPass, err := EnsureFirstUser()
-	if err != nil || againUser != "" || againPass != "" {
-		t.Fatalf("second EnsureFirstUser = %q, %q, %v; want nothing created", againUser, againPass, err)
+	if _, _, err := EnsureFirstUser(); err != nil {
+		t.Fatalf("second EnsureFirstUser: %v", err)
 	}
 	var count int64
 	if err := db.Model(&model.User{}).Count(&count).Error; err != nil || count != 1 {
