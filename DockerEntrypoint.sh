@@ -88,5 +88,24 @@ if [ "$PARHAM_HIDE_PANEL" != "0" ]; then
     cp /app/nginx-hidden.conf /etc/nginx/http.d/default.conf
 fi
 
+# Never let the webDomain/subDomain settings lock the panel: when either is
+# non-empty, the panel and sub servers reject every request whose Host does
+# not match exactly, and behind a platform edge that rewrites Host that means
+# a total lockout after the next restart. All addressing lives in the host
+# groups, so keep both settings empty at every container start.
+if [ -f /etc/x-ui/x-ui.db ]; then
+    python3 - <<'PYEOF' || true
+import sqlite3
+try:
+    db = sqlite3.connect("/etc/x-ui/x-ui.db")
+    db.execute("UPDATE settings SET value='' WHERE key IN ('webDomain','subDomain') AND value<>''")
+    db.commit()
+    db.close()
+    print("[parham] webDomain/subDomain cleared (domain-validator lockout guard)")
+except Exception as e:
+    print("[parham] domain lockout guard skipped:", e)
+PYEOF
+fi
+
 # Run panel and Nginx under Supervisor for the OMID reverse-proxy image.
 exec /usr/bin/supervisord -n -c /etc/supervisord.conf
