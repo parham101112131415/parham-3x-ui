@@ -81,9 +81,10 @@ if [ -f /root/.acme.sh/acme.sh ]; then
     crond
 fi
 
-# Parham hidden-panel mode: when PARHAM_HIDE_PANEL=1, the domain root serves
+# Parham hidden-panel mode is ON by default: the domain root serves
 # the bat game (404) and the panel is only reachable under /parham.
-if [ "$PARHAM_HIDE_PANEL" = "1" ]; then
+# Set PARHAM_HIDE_PANEL=0 only to explicitly disable it.
+if [ "$PARHAM_HIDE_PANEL" != "0" ]; then
     cp /app/nginx-hidden.conf /etc/nginx/http.d/default.conf
 fi
 
