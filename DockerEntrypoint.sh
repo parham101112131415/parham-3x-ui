@@ -93,17 +93,24 @@ fi
 # not match exactly, and behind a platform edge that rewrites Host that means
 # a total lockout after the next restart. All addressing lives in the host
 # groups, so keep both settings empty at every container start.
+# In hidden mode nginx only exposes the panel under /parham, so the panel's
+# own Web Base Path must be /parham/ too — a DB carried over from a
+# root-hosted setup keeps '/' and the panel then 404s its own UI.
 if [ -f /etc/x-ui/x-ui.db ]; then
-    python3 - <<'PYEOF' || true
-import sqlite3
+    PARHAM_FIX_BASEPATH=0
+    [ "$PARHAM_HIDE_PANEL" != "0" ] && PARHAM_FIX_BASEPATH=1
+    PARHAM_FIX_BASEPATH="$PARHAM_FIX_BASEPATH" python3 - <<'PYEOF' || true
+import os, sqlite3
 try:
     db = sqlite3.connect("/etc/x-ui/x-ui.db")
     db.execute("UPDATE settings SET value='' WHERE key IN ('webDomain','subDomain') AND value<>''")
+    if os.environ.get("PARHAM_FIX_BASEPATH") == "1":
+        db.execute("UPDATE settings SET value='/parham/' WHERE key='webBasePath' AND value<>'/parham/'")
     db.commit()
     db.close()
-    print("[parham] webDomain/subDomain cleared (domain-validator lockout guard)")
+    print("[parham] settings guards applied (domains cleared, base path /parham/ in hidden mode)")
 except Exception as e:
-    print("[parham] domain lockout guard skipped:", e)
+    print("[parham] settings guard skipped:", e)
 PYEOF
 fi
 
